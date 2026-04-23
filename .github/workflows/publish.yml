@@ -29,13 +29,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
-
-      # npm >= 11.5.1 is required for npm OIDC trusted publishing.
-      # Node 22 ships with npm 10.x, so upgrade explicitly.
-      - name: Upgrade npm for OIDC trusted publishing
-        run: npm install -g npm@latest
 
       - name: Read package version
         id: pkg
@@ -85,11 +80,22 @@ jobs:
         run: bun test
 
       # Uses npm OIDC trusted publishing (no NPM_TOKEN).
+      # Requires npm >= 11.5.1. Node 24 ships with npm 11.x; if the default
+      # npm is too old we fall through to npx with a pinned version.
       # Configure this repository as a trusted publisher in npm:
       # https://docs.npmjs.com/trusted-publishers
       - name: Publish to npm
         if: steps.check.outputs.already_published == 'false'
-        run: npm publish --provenance --access public
+        run: |
+          npm_version=$(npm --version)
+          echo "default npm: $npm_version"
+          required="11.5.1"
+          if [ "$(printf '%s\n' "$required" "$npm_version" | sort -V | head -n1)" = "$required" ]; then
+            npm publish --provenance --access public
+          else
+            echo "Default npm ($npm_version) is older than $required; using npx."
+            npx -y npm@latest publish --provenance --access public
+          fi
 
       # Tag/Release run whenever the git tag is missing, even if publish was
       # skipped (e.g. the version was published out-of-band like the initial
