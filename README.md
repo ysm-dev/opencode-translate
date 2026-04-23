@@ -9,6 +9,7 @@
 - Stores the original user text, plus a cached English translation in part metadata.
 - Shows a visible `→ EN: ...` preview under each translated user text part.
 - Translates assistant text parts from English into `displayLanguage` when each text part completes.
+- Translates the built-in `question` tool's question text, header, and every option's label and description into `displayLanguage` so the TUI confirmation dialog is in the user's language. The tool output string returned to the LLM is restored to English, keeping the chat history English-only.
 - Stores assistant text as:
 
 ```md

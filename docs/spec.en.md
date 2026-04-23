@@ -48,7 +48,13 @@ parts (line 188) — are explicitly out of scope in v1 (see §5.3, §16).
 - No TUI plugin companion / status-bar widget. All feedback is delivered
   via plugin-owned synthetic message parts and the native session-error
   stream.
-- No translation of tool names, tool arguments, or tool output.
+- No translation of tool names or tool output, **except** for the built-in
+  `question` tool: its `questions[].question`, `questions[].header`, and
+  every `options[].label` / `options[].description` are translated to
+  `displayLanguage` via a `tool.execute.before` hook so the TUI dialog
+  renders in the user's language. The tool output string returned to the
+  main LLM is deterministically restored to English in `tool.execute.after`
+  (see §6.7). MCP tools are not translated.
 - No translation of reasoning ("thinking") parts.
 - No translation inside subagent (task tool) sessions.
 - **No enforcement of English-only on the title generation path.** The
@@ -843,6 +849,54 @@ therefore unsupported in v1; see §16 for the v2 plan.
   rate-limits predictable.
 - The transform hook never makes network calls (§6.5), so it stays
   O(messages) cheap even in tool-heavy turns.
+
+### 6.7 Question tool translation
+
+The built-in `question` tool is the one exception to the "no tool
+translation" rule (§3), because its arguments drive a UI dialog the
+user must read and answer in their own language.
+
+Flow:
+
+1. The agent (English-only) calls `question` with an `args.questions[]`
+   payload in English.
+2. The plugin's `tool.execute.before` handler filters on
+   `input.tool === "question"` and, if the session has active
+   translation state and `translate_display_lang !== LLM_LANGUAGE`:
+   - Takes a deep-clone snapshot of the English args.
+   - Translates `question`, `header`, and every option's `label` and
+     `description` to `displayLanguage` **in parallel** via the same
+     translator instance used for chat text. Each string goes through
+     the normal `src/translator.ts` path (placeholder protection,
+     retry/backoff, 60s timeout).
+   - Stores `{ original, translated }` keyed by `input.callID`.
+3. The tool then executes with the mutated args. When it publishes the
+   `question.asked` bus event, the TUI renders the translated dialog
+   (`packages/opencode/src/cli/cmd/tui/routes/session/question.tsx`).
+4. The user picks an option (the translated label) or types a custom
+   answer.
+5. The plugin's `tool.execute.after` handler restores the exact English
+   output string the tool would have produced if it had been called
+   with the original English args:
+   - For each user-selected label, look up the index in
+     `snapshot.translated[i].options` and return
+     `snapshot.original[i].options[idx].label`. Free-text (custom)
+     answers that don't match any translated label are passed through
+     verbatim.
+   - Output is rewritten to the exact format from
+     `packages/opencode/src/tool/question.ts:31-37`:
+     `User has answered your questions: "{q}"="{labels}". You can now continue with the user's answers in mind.`
+6. The restored output flows back to the main LLM, preserving the
+   English-only history invariant (§5.1).
+
+Failure modes:
+
+- If translation fails at step 2, the plugin reverts the args to the
+  English snapshot and skips storing the callID. The TUI sees the
+  original English dialog and `tool.execute.after` becomes a no-op for
+  that call. Hooks never throw (§6.5).
+- MCP tools are not intercepted: the `input.tool` filter is a strict
+  equality check against `"question"` only.
 
 ## 7. Content Protection
 

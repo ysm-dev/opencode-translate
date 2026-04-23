@@ -23,12 +23,23 @@ import {
 } from "./constants"
 import { composeTranslatedAssistantText, composeTranslationFailureText, extractEnglishHistoryText } from "./formatting"
 import { getDisplayLanguageLabel } from "./labels"
+import {
+  isQuestionArgs,
+  type QuestionSnapshot,
+  type QuestionToolOutput,
+  restoreQuestionOutput,
+  snapshotQuestions,
+  translateQuestionArgs,
+} from "./question-tool"
 import { createSyntheticPartID, createTranslator, hashText } from "./translator"
 
 const sessionStateCache = new Map<string, TranslateState | null>()
+const questionSnapshots = new Map<string, QuestionSnapshot>()
+const QUESTION_TOOL_ID = "question"
 
 export function __resetActivationCacheForTest() {
   sessionStateCache.clear()
+  questionSnapshots.clear()
 }
 
 interface ResolvedSessionState {
@@ -448,6 +459,56 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
           output.text = composeTranslationFailureText(output.text, activeState.translate_nonce)
           await logError(client, error)
         }
+      } catch (error) {
+        await logError(client, error)
+      }
+    },
+    // Translate the built-in `question` tool so the TUI dialog renders in
+    // the user's displayLanguage. The tool output string is restored back
+    // to English in `tool.execute.after` so the main LLM context stays
+    // English-only.
+    "tool.execute.before": async (input, output) => {
+      try {
+        if (input.tool !== QUESTION_TOOL_ID) return
+        const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
+        const activeState = resolved.state
+        if (!activeState) return
+        if (activeState.translate_display_lang === LLM_LANGUAGE) return
+
+        const args = output.args as unknown
+        if (!isQuestionArgs(args)) return
+
+        const original = snapshotQuestions(args)
+        try {
+          await translateQuestionArgs(args, (text) =>
+            translator.translateText({
+              text,
+              sourceLanguage: LLM_LANGUAGE,
+              targetLanguage: activeState.translate_display_lang,
+              direction: "outbound",
+            }),
+          )
+        } catch (error) {
+          // Translation failed: restore the originals so the dialog at least
+          // renders in English instead of a half-translated mess.
+          args.questions.splice(0, args.questions.length, ...snapshotQuestions({ questions: original }))
+          await logError(client, error)
+          return
+        }
+
+        const translated = snapshotQuestions(args)
+        questionSnapshots.set(input.callID, { original, translated })
+      } catch (error) {
+        await logError(client, error)
+      }
+    },
+    "tool.execute.after": async (input, output) => {
+      try {
+        if (input.tool !== QUESTION_TOOL_ID) return
+        const snapshot = questionSnapshots.get(input.callID)
+        if (!snapshot) return
+        questionSnapshots.delete(input.callID)
+        restoreQuestionOutput(output as QuestionToolOutput, snapshot)
       } catch (error) {
         await logError(client, error)
       }
