@@ -255,152 +255,194 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
 
   return {
     "chat.message": async (input, output) => {
-      const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
-      let activeState = resolved.state
-      let activatedThisTurn = false
+      // Hooks must never throw. A thrown error propagates into OpenCode's
+      // Effect runtime as a defect, kills the fiber, and stalls the session —
+      // to the user this looks like infinite loading with no error message.
+      // Instead, we log the failure and fall back to the untranslated text so
+      // the chat keeps moving.
+      try {
+        const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
+        let activeState = resolved.state
+        let activatedThisTurn = false
 
-      if (!activeState && resolved.canActivate) {
-        const match = findTriggerMatch(output.parts as TextPartLike[], options.triggerKeywords)
-        if (match) {
-          const part = output.parts[match.partArrayIndex] as TextPartLike & { text: string }
-          part.text = stripTriggerKeyword(part.text, match.keyword, match.offset)
-          activeState = createState(options)
-          if (!NONCE_PATTERN.test(activeState.translate_nonce)) {
-            throw new Error("Generated invalid translation nonce")
+        if (!activeState && resolved.canActivate) {
+          const match = findTriggerMatch(output.parts as TextPartLike[], options.triggerKeywords)
+          if (match) {
+            const part = output.parts[match.partArrayIndex] as TextPartLike & { text: string }
+            const originalText = part.text
+            part.text = stripTriggerKeyword(part.text, match.keyword, match.offset)
+            activeState = createState(options)
+            if (!NONCE_PATTERN.test(activeState.translate_nonce)) {
+              part.text = originalText
+              await logError(client, new Error("Generated invalid translation nonce"))
+              return
+            }
+            activatedThisTurn = true
+            sessionStateCache.set(input.sessionID, activeState)
           }
-          activatedThisTurn = true
-          sessionStateCache.set(input.sessionID, activeState)
         }
-      }
 
-      if (!activeState) return
+        if (!activeState) return
 
-      const nextParts: TextPartLike[] = []
-      let eligibleIndex = 0
+        const nextParts: TextPartLike[] = []
+        let eligibleIndex = 0
+        const translationErrors: { part: TextPartLike; error: unknown }[] = []
 
-      for (const part of output.parts as TextPartLike[]) {
-        nextParts.push(part)
-        if (!isUserAuthoredTextPart(part)) continue
+        for (const part of output.parts as TextPartLike[]) {
+          nextParts.push(part)
+          if (!isUserAuthoredTextPart(part)) continue
 
-        const currentEligibleIndex = eligibleIndex
-        eligibleIndex += 1
-        if (part.text.trim().length === 0) continue
+          const currentEligibleIndex = eligibleIndex
+          eligibleIndex += 1
+          if (part.text.trim().length === 0) continue
 
-        try {
-          const english = await translator.translateText({
-            text: part.text,
-            sourceLanguage: activeState.translate_source_lang,
-            targetLanguage: LLM_LANGUAGE,
-            direction: "inbound",
-          })
+          try {
+            const english = await translator.translateText({
+              text: part.text,
+              sourceLanguage: activeState.translate_source_lang,
+              targetLanguage: LLM_LANGUAGE,
+              direction: "inbound",
+            })
 
-          const sourceHash = hashText(part.text)
-          part.metadata = {
-            ...(part.metadata ?? {}),
-            ...mergeTranslatedMetadata(activeState, part, english),
-          }
-
-          nextParts.push(
-            createSyntheticTextPart(part.sessionID, part.messageID, `→ EN: ${english}`, {
-              translate_role: "translation_preview",
-              translate_nonce: activeState.translate_nonce,
-              translate_source_hash: sourceHash,
-              translate_part_index: currentEligibleIndex,
-            }),
-          )
-        } catch (error) {
-          if (
-            error instanceof Error &&
-            (error.message.includes(":AUTH_UNAVAILABLE]") || error.message.includes(":OAUTH_REFRESH_FAILED]"))
-          ) {
-            throw error
-          }
-          throw buildInboundTranslationError(activeState.translate_source_lang, normalizeReason(error))
-        }
-      }
-
-      if (activatedThisTurn) {
-        nextParts.push(
-          createSyntheticTextPart(input.sessionID, output.message.id, createActivationBannerText(options), {
-            ...activeState,
-            translate_role: "activation_banner",
-            translate_spec_version: SPEC_VERSION,
-          }),
-        )
-      }
-
-      output.parts.splice(0, output.parts.length, ...(nextParts as typeof output.parts))
-    },
-    "experimental.chat.messages.transform": async (_input, output) => {
-      const sessionID = output.messages[0]?.info.sessionID
-      if (!sessionID) return
-
-      const resolved = await resolveSessionState(client, ctx.directory, sessionID)
-      const activeState = resolved.state
-      if (!activeState) return
-
-      for (const message of output.messages as MessageWithPartsLike[]) {
-        if (message.info.role === "user") {
-          for (const part of message.parts) {
-            if (!isTextPart(part)) continue
-            if (!shouldRequireCache(part)) continue
-            const metadata = asMetadata(part)
             const sourceHash = hashText(part.text)
-            if (
-              metadata.translate_enabled === true &&
-              metadata.translate_nonce === activeState.translate_nonce &&
-              metadata.translate_source_hash === sourceHash &&
-              typeof metadata.translate_en === "string"
-            ) {
-              part.text = metadata.translate_en
-              continue
+            part.metadata = {
+              ...(part.metadata ?? {}),
+              ...mergeTranslatedMetadata(activeState, part, english),
             }
 
-            throw buildStaleCacheError()
+            nextParts.push(
+              createSyntheticTextPart(part.sessionID, part.messageID, `→ EN: ${english}`, {
+                translate_role: "translation_preview",
+                translate_nonce: activeState.translate_nonce,
+                translate_source_hash: sourceHash,
+                translate_part_index: currentEligibleIndex,
+              }),
+            )
+          } catch (error) {
+            // Fall back to sending the original text to the LLM so the user
+            // still gets a response. Surface the error as a synthetic part.
+            translationErrors.push({ part, error })
+            const wrapped = buildInboundTranslationError(activeState.translate_source_lang, normalizeReason(error))
+            await logError(client, wrapped)
+            nextParts.push(
+              createSyntheticTextPart(
+                part.sessionID,
+                part.messageID,
+                `⚠️ Translation failed: ${normalizeReason(error)}. Original text will be sent to the model.`,
+                {
+                  translate_role: "translation_failure",
+                  translate_nonce: activeState.translate_nonce,
+                  translate_part_index: currentEligibleIndex,
+                },
+              ),
+            )
           }
         }
 
-        if (message.info.role === "assistant") {
-          for (const part of message.parts) {
-            if (!isTextPart(part)) continue
-            part.text = extractEnglishHistoryText(part.text, activeState.translate_nonce)
+        // If we activated this turn but translation failed for every
+        // user-authored part, roll back activation so the next turn does a
+        // clean retry instead of cementing broken state.
+        if (activatedThisTurn && translationErrors.length > 0 && eligibleIndex === translationErrors.length) {
+          sessionStateCache.set(input.sessionID, null)
+          return
+        }
+
+        if (activatedThisTurn) {
+          nextParts.push(
+            createSyntheticTextPart(input.sessionID, output.message.id, createActivationBannerText(options), {
+              ...activeState,
+              translate_role: "activation_banner",
+              translate_spec_version: SPEC_VERSION,
+            }),
+          )
+        }
+
+        output.parts.splice(0, output.parts.length, ...(nextParts as typeof output.parts))
+      } catch (error) {
+        await logError(client, error)
+      }
+    },
+    "experimental.chat.messages.transform": async (_input, output) => {
+      try {
+        const sessionID = output.messages[0]?.info.sessionID
+        if (!sessionID) return
+
+        const resolved = await resolveSessionState(client, ctx.directory, sessionID)
+        const activeState = resolved.state
+        if (!activeState) return
+
+        for (const message of output.messages as MessageWithPartsLike[]) {
+          if (message.info.role === "user") {
+            for (const part of message.parts) {
+              if (!isTextPart(part)) continue
+              if (!shouldRequireCache(part)) continue
+              const metadata = asMetadata(part)
+              const sourceHash = hashText(part.text)
+              if (
+                metadata.translate_enabled === true &&
+                metadata.translate_nonce === activeState.translate_nonce &&
+                metadata.translate_source_hash === sourceHash &&
+                typeof metadata.translate_en === "string"
+              ) {
+                part.text = metadata.translate_en
+                continue
+              }
+
+              // Stale cache or untranslated text. Send it through as-is
+              // (English history would be ideal, but we shouldn't block the
+              // session). Also log so the user can diagnose if needed.
+              await logError(client, buildStaleCacheError())
+            }
+          }
+
+          if (message.info.role === "assistant") {
+            for (const part of message.parts) {
+              if (!isTextPart(part)) continue
+              part.text = extractEnglishHistoryText(part.text, activeState.translate_nonce)
+            }
           }
         }
+      } catch (error) {
+        await logError(client, error)
       }
     },
     "experimental.text.complete": async (input, output) => {
-      const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
-      const activeState = resolved.state
-      if (!activeState) return
-
-      const message = unwrapData(
-        await client.session.message({
-          path: { id: input.sessionID, messageID: input.messageID },
-          query: { ...(ctx.directory ? { directory: ctx.directory } : {}) },
-          throwOnError: true,
-        }),
-      ) as MessageWithPartsLike & { info: Record<string, unknown> }
-
-      if (message.info.role !== "assistant") return
-      if (message.info.summary === true) return
-      if (activeState.translate_display_lang === LLM_LANGUAGE || output.text.length === 0) return
-
       try {
-        const translated = await translator.translateText({
-          text: output.text,
-          sourceLanguage: LLM_LANGUAGE,
-          targetLanguage: activeState.translate_display_lang,
-          direction: "outbound",
-        })
+        const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
+        const activeState = resolved.state
+        if (!activeState) return
 
-        output.text = composeTranslatedAssistantText(
-          output.text,
-          getDisplayLanguageLabel(activeState.translate_display_lang),
-          translated,
-          activeState.translate_nonce,
-        )
+        const message = unwrapData(
+          await client.session.message({
+            path: { id: input.sessionID, messageID: input.messageID },
+            query: { ...(ctx.directory ? { directory: ctx.directory } : {}) },
+            throwOnError: true,
+          }),
+        ) as MessageWithPartsLike & { info: Record<string, unknown> }
+
+        if (message.info.role !== "assistant") return
+        if (message.info.summary === true) return
+        if (activeState.translate_display_lang === LLM_LANGUAGE || output.text.length === 0) return
+
+        try {
+          const translated = await translator.translateText({
+            text: output.text,
+            sourceLanguage: LLM_LANGUAGE,
+            targetLanguage: activeState.translate_display_lang,
+            direction: "outbound",
+          })
+
+          output.text = composeTranslatedAssistantText(
+            output.text,
+            getDisplayLanguageLabel(activeState.translate_display_lang),
+            translated,
+            activeState.translate_nonce,
+          )
+        } catch (error) {
+          output.text = composeTranslationFailureText(output.text, activeState.translate_nonce)
+          await logError(client, error)
+        }
       } catch (error) {
-        output.text = composeTranslationFailureText(output.text, activeState.translate_nonce)
         await logError(client, error)
       }
     },

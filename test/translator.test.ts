@@ -97,7 +97,7 @@ describe("translator", () => {
     expect(calls).toBe(2)
   })
 
-  test("final failure in chat.message throws the exact inbound prefix and emits no preview", async () => {
+  test("final failure in chat.message does not throw and falls back to the untranslated text", async () => {
     const hooks = createHooks(
       {
         client: fakeClient([]),
@@ -118,10 +118,14 @@ describe("translator", () => {
       parts: [textPart("p1", "$en 안녕")],
     }
 
-    await expect(hooks["chat.message"]!({ sessionID: "ses_1" }, output as never)).rejects.toThrow(
-      "[opencode-translate:INBOUND_TRANSLATION_FAILED] Failed to translate user message from ko to en: translator unavailable",
-    )
-    expect(output.parts).toHaveLength(1)
+    // Must NOT reject — a thrown error in chat.message stalls OpenCode's
+    // session fiber, which appears to the user as infinite loading.
+    await hooks["chat.message"]!({ sessionID: "ses_1" }, output as never)
+
+    // Activation is rolled back so a later turn can retry cleanly.
+    // Only the original (trigger-stripped) user part remains.
+    expect((output.parts[0] as TextPartLike).text).toBe("안녕")
+    expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBeUndefined()
   })
 
   test("valid cached history rewrites user text without calling the translator", async () => {
@@ -172,7 +176,7 @@ describe("translator", () => {
     expect((output.messages[0].parts[0] as TextPartLike).text).toBe("EN:안녕")
   })
 
-  test("hash mismatch in transform throws the exact stale-cache error and does not call the translator", async () => {
+  test("hash mismatch in transform does not throw and does not call the translator", async () => {
     let calls = 0
     const history = [
       {
@@ -214,10 +218,13 @@ describe("translator", () => {
       ],
     }
 
-    await expect(hooks["experimental.chat.messages.transform"]!({} as never, output as never)).rejects.toThrow(
-      "[opencode-translate:STALE_CACHE] A previously translated user message was edited. Resend the message or start a new session.",
-    )
+    // Must NOT reject — throwing from a hook stalls OpenCode's session.
+    // The edited text stays as-is so the original user message still
+    // reaches the model.
+    await hooks["experimental.chat.messages.transform"]!({} as never, output as never)
+
     expect(calls).toBe(0)
+    expect((output.messages[0].parts[0] as TextPartLike).text).toBe("편집됨")
   })
 
   test("synthetic user parts are skipped during inbound translation", async () => {

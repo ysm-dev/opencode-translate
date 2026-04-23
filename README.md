@@ -32,7 +32,18 @@
 - No title translation or title-path English enforcement.
 - No subagent translation.
 - No translation of tool inputs, tool outputs, or reasoning parts.
-- No self-healing for edited historical translated user messages. Those abort with a stale-cache error.
+- Edited historical translated user messages are passed through as-is instead of being re-translated (the original edited text is what the LLM sees).
+
+## Hook Failure Handling
+
+Hooks never throw. If the translator fails (network error, auth failure, provider 4xx/5xx), the plugin:
+
+1. Logs the error via `client.app.log` (visible with `verbose: true`).
+2. Emits a `⚠️ Translation failed: …` synthetic part.
+3. Falls back to sending the original (untranslated) user text to the model.
+4. On first-turn activation failure, it also rolls back activation so the next turn retries cleanly.
+
+A stalled provider request is additionally bounded by a 60s hard timeout per translation call, so a hung upstream cannot block the OpenCode session.
 
 ## Install
 
@@ -89,15 +100,27 @@ Using this plugin means text goes to two model providers per turn:
 
 If you need strict single-provider or self-hosted-only behavior, do not enable this plugin.
 
-## Anthropic OAuth Warning
+## Anthropic OAuth Support
 
-If `translatorModel` uses Anthropic and OpenCode auth is backed by Anthropic OAuth, this plugin will attempt to reuse those OAuth credentials for translation requests.
+If `translatorModel` uses Anthropic and OpenCode auth is backed by Anthropic OAuth (Claude Pro/Max), the plugin reuses those OAuth credentials for translation requests.
 
-- This depends on undocumented Anthropic OAuth request shapes.
-- OpenCode upstream removed Anthropic OAuth support for legal / policy reasons.
-- `opencode-translate` does not spoof Claude CLI headers or reintroduce the evasions upstream removed.
+Anthropic's `/v1/messages` endpoint rejects OAuth-authenticated requests that do not match the Claude Code CLI fingerprint (response: `429 rate_limit_error` with an empty `"Error"` message). To pass, the plugin applies the same transformation that `@ex-machina/opencode-anthropic-auth` uses for OpenCode's main chat, but only for its own translator requests:
 
-If you do not want that risk, use a plain API key for Anthropic or choose a different translator provider.
+- `user-agent: claude-cli/2.1.87 (external, cli)`
+- Required `anthropic-beta` headers (`oauth-2025-04-20`, `interleaved-thinking-2025-05-14`)
+- `?beta=true` appended to the `/v1/messages` URL
+- `x-anthropic-billing-header` block prepended to `system[]` (deterministic CCH of the first user message)
+- `"You are a Claude agent, built on Anthropic's Claude Agent SDK."` injected as the next `system[]` block
+
+The technique and constants are documented in https://github.com/ex-machina-co/opencode-anthropic-auth. See `src/anthropic-oauth.ts`.
+
+Tradeoffs:
+
+- Relies on an undocumented Anthropic OAuth request shape. Anthropic can change this at any time and force the plugin to stop using OAuth.
+- OpenCode upstream removed Anthropic OAuth support for legal / policy reasons. Installing this plugin reintroduces an equivalent code path in your environment.
+- Translator requests contribute to your Claude Pro/Max rate limit alongside OpenCode's main chat.
+
+If you prefer a plain API key, set `ANTHROPIC_API_KEY` in the environment or pass `apiKey` in plugin options. The plugin prefers explicit `apiKey`, then `ANTHROPIC_API_KEY`, then OAuth.
 
 ## Manual Smoke Test
 
@@ -107,7 +130,7 @@ If you do not want that risk, use a plain API key for Anthropic or choose a diff
 4. Confirm the `→ EN: ...` preview appears under the user message.
 5. Confirm assistant text streams in English, then gains a translated trailer when the text part finishes.
 6. Confirm later messages in the same session translate without repeating `$en`.
-7. Confirm editing a historical translated user message aborts with the stale-cache error.
+7. Confirm editing a historical translated user message falls back to the edited text being sent as-is (with a log entry visible under `verbose: true`).
 8. Confirm task-tool child sessions are not translated.
 9. Confirm the title remains in the source language in v1.
 

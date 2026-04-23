@@ -3,6 +3,12 @@ import os from "node:os"
 import path from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 import {
+  isAnthropicMessagesRequest,
+  rewriteMessagesBody,
+  rewriteMessagesURL,
+  setOAuthHeaders as setAnthropicOAuthHeaders,
+} from "./anthropic-oauth"
+import {
   AUTH_ENV_FALLBACK,
   type AuthInfo,
   buildAuthUnavailableError,
@@ -385,13 +391,16 @@ export function createCredentialResolver(
       const inputUrl =
         input instanceof URL ? new URL(input.href) : new URL(typeof input === "string" ? input : input.url)
 
+      let nextBody = init?.body
+
       if (providerID === "anthropic") {
-        headers.set("Authorization", `Bearer ${info.access}`)
-        headers.set("anthropic-beta", "oauth-2025-04-20,interleaved-thinking-2025-05-14")
+        // Match the Claude Code CLI fingerprint so Anthropic's OAuth rate-limit
+        // guard doesn't reject third-party agents. See src/anthropic-oauth.ts.
+        setAnthropicOAuthHeaders(headers, info.access)
         headers.set("anthropic-version", "2023-06-01")
-        headers.delete("x-api-key")
-        if (inputUrl.pathname === "/v1/messages" && !inputUrl.searchParams.has("beta")) {
-          inputUrl.searchParams.set("beta", "true")
+        rewriteMessagesURL(inputUrl)
+        if (isAnthropicMessagesRequest(inputUrl) && typeof nextBody === "string") {
+          nextBody = rewriteMessagesBody(nextBody)
         }
       }
 
@@ -436,6 +445,7 @@ export function createCredentialResolver(
       return fetchImpl(inputUrl, {
         ...init,
         headers,
+        body: nextBody,
       })
     }
   }

@@ -20,6 +20,7 @@ interface TranslatorDependencies {
   sleep?: (ms: number) => Promise<void>
   now?: () => number
   credentialResolver?: ReturnType<typeof createCredentialResolver>
+  timeoutMs?: number
 }
 
 interface TranslateTextInput {
@@ -27,6 +28,26 @@ interface TranslateTextInput {
   sourceLanguage: string
   targetLanguage: string
   direction: "inbound" | "outbound"
+}
+
+// Hard timeout for a single generateText call. Without this, a stalled
+// provider request can block the chat.message hook indefinitely.
+const DEFAULT_TRANSLATE_TIMEOUT_MS = 60_000
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
 }
 
 const providerFactoryCache = new Map<string, unknown>()
@@ -193,6 +214,7 @@ export function createTranslator(
   const now = deps.now ?? (() => Date.now())
   const generateTextImpl = deps.generateTextImpl ?? generateText
   const credentialResolver = deps.credentialResolver ?? createCredentialResolver(client, options)
+  const timeoutMs = deps.timeoutMs ?? DEFAULT_TRANSLATE_TIMEOUT_MS
 
   async function translateText(input: TranslateTextInput): Promise<string> {
     if (!input.text) return input.text
@@ -213,21 +235,25 @@ export function createTranslator(
       try {
         const translated = await withRetry(async () => {
           try {
-            const result = (await generateTextImpl({
-              model: model as never,
-              system: buildSystemPrompt({
-                sourceLanguage: input.sourceLanguage,
-                targetLanguage: input.targetLanguage,
-                text: protectedText.text,
-                strictPlaceholderRetry: missingPlaceholders,
-              }),
-              temperature: 0,
-              prompt: buildUserPrompt({
-                sourceLanguage: input.sourceLanguage,
-                targetLanguage: input.targetLanguage,
-                text: protectedText.text,
-              }),
-            })) as { text: string }
+            const result = (await withTimeout(
+              generateTextImpl({
+                model: model as never,
+                system: buildSystemPrompt({
+                  sourceLanguage: input.sourceLanguage,
+                  targetLanguage: input.targetLanguage,
+                  text: protectedText.text,
+                  strictPlaceholderRetry: missingPlaceholders,
+                }),
+                temperature: 0,
+                prompt: buildUserPrompt({
+                  sourceLanguage: input.sourceLanguage,
+                  targetLanguage: input.targetLanguage,
+                  text: protectedText.text,
+                }),
+              }) as Promise<{ text: string }>,
+              timeoutMs,
+              "Translator generateText",
+            )) as { text: string }
             return result.text
           } catch (error) {
             if (isAuthMessage(error)) throw error
