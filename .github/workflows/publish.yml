@@ -1,0 +1,116 @@
+name: Publish
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # npm >= 11.5.1 is required for npm OIDC trusted publishing.
+      # Node 22 ships with npm 10.x, so upgrade explicitly.
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Read package version
+        id: pkg
+        run: |
+          version=$(node -p "require('./package.json').version")
+          name=$(node -p "require('./package.json').name")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Check if version already published
+        id: check
+        run: |
+          name='${{ steps.pkg.outputs.name }}'
+          version='${{ steps.pkg.outputs.version }}'
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$name@$version is already on npm. Skipping publish."
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check if git tag exists
+        id: tag
+        run: |
+          tag='${{ steps.pkg.outputs.tag }}'
+          if git ls-remote --tags --exit-code origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install
+        if: steps.check.outputs.already_published == 'false'
+        run: bun install --frozen-lockfile
+
+      - name: Biome check
+        if: steps.check.outputs.already_published == 'false'
+        run: bun run check:ci
+
+      - name: Typecheck
+        if: steps.check.outputs.already_published == 'false'
+        run: bun run typecheck
+
+      - name: Test
+        if: steps.check.outputs.already_published == 'false'
+        run: bun test
+
+      # Uses npm OIDC trusted publishing (no NPM_TOKEN).
+      # Configure this repository as a trusted publisher in npm:
+      # https://docs.npmjs.com/trusted-publishers
+      - name: Publish to npm
+        if: steps.check.outputs.already_published == 'false'
+        run: npm publish --provenance --access public
+
+      # Tag/Release run whenever the git tag is missing, even if publish was
+      # skipped (e.g. the version was published out-of-band like the initial
+      # 0.0.1 local publish). This keeps git tags in sync with published versions.
+      - name: Create git tag
+        if: steps.tag.outputs.tag_exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag='${{ steps.pkg.outputs.tag }}'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"
+
+      - name: Create GitHub release
+        if: steps.tag.outputs.tag_exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag='${{ steps.pkg.outputs.tag }}'
+          gh release create "$tag" \
+            --title "$tag" \
+            --generate-notes

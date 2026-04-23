@@ -1,0 +1,408 @@
+import { randomBytes } from "node:crypto"
+import type { Hooks, PluginInput, PluginOptions } from "@opencode-ai/plugin"
+import {
+  buildInboundTranslationError,
+  buildStaleCacheError,
+  isTextPart,
+  isTranslateStateRecord,
+  isUserAuthoredTextPart,
+  LLM_LANGUAGE,
+  type MessageWithPartsLike,
+  NONCE_PATTERN,
+  normalizeReason,
+  PLUGIN_NAME,
+  type PluginClientLike,
+  parseTranslatorModel,
+  type ResolvedTranslateOptions,
+  resolveOptions,
+  SPEC_VERSION,
+  type StoredTextMetadata,
+  type TextPartLike,
+  type TranslateState,
+  unwrapData,
+} from "./constants"
+import { composeTranslatedAssistantText, composeTranslationFailureText, extractEnglishHistoryText } from "./formatting"
+import { getDisplayLanguageLabel } from "./labels"
+import { createSyntheticPartID, createTranslator, hashText } from "./translator"
+
+const sessionStateCache = new Map<string, TranslateState | null>()
+
+export function __resetActivationCacheForTest() {
+  sessionStateCache.clear()
+}
+
+interface ResolvedSessionState {
+  sessionActive: boolean
+  canActivate: boolean
+  state?: TranslateState
+  storedMessages: MessageWithPartsLike[]
+}
+
+interface TriggerMatch {
+  partArrayIndex: number
+  eligibleIndex: number
+  keyword: string
+  offset: number
+}
+
+interface HookDependencies {
+  translator?: {
+    translateText(input: {
+      text: string
+      sourceLanguage: string
+      targetLanguage: string
+      direction: "inbound" | "outbound"
+    }): Promise<string>
+  }
+}
+
+function logError(client: PluginClientLike, error: unknown) {
+  return client.app.log({
+    body: {
+      service: PLUGIN_NAME,
+      level: "error",
+      message: normalizeReason(error),
+    },
+  })
+}
+
+function createState(options: ResolvedTranslateOptions): TranslateState {
+  return {
+    translate_enabled: true,
+    translate_source_lang: options.sourceLanguage,
+    translate_display_lang: options.displayLanguage,
+    translate_llm_lang: LLM_LANGUAGE,
+    translate_nonce: randomBytes(16).toString("hex"),
+  }
+}
+
+function createActivationBannerText(options: ResolvedTranslateOptions): string {
+  const { modelID } = parseTranslatorModel(options.translatorModel)
+  return `✓ Translation mode enabled · translator: ${modelID} · source: ${options.sourceLanguage} · display: ${options.displayLanguage}`
+}
+
+function asMetadata(part: TextPartLike): StoredTextMetadata {
+  return (part.metadata ?? {}) as StoredTextMetadata
+}
+
+function extractStateFromMetadata(metadata: StoredTextMetadata | undefined): TranslateState | undefined {
+  if (!isTranslateStateRecord(metadata)) return undefined
+  return {
+    translate_enabled: true,
+    translate_source_lang: metadata.translate_source_lang,
+    translate_display_lang: metadata.translate_display_lang,
+    translate_llm_lang: LLM_LANGUAGE,
+    translate_nonce: metadata.translate_nonce,
+  }
+}
+
+export function extractStoredState(messages: MessageWithPartsLike[]): TranslateState | undefined {
+  let fallback: TranslateState | undefined
+
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (!isTextPart(part)) continue
+      const metadata = asMetadata(part)
+      const state = extractStateFromMetadata(metadata)
+      if (!state) continue
+      if (metadata.translate_role === "activation_banner") return state
+      if (message.info.role === "user" && part.synthetic !== true && fallback === undefined) {
+        fallback = state
+      }
+    }
+  }
+
+  return fallback
+}
+
+function mergeTranslatedMetadata(state: TranslateState, part: TextPartLike, english: string): Record<string, unknown> {
+  return {
+    ...(part.metadata ?? {}),
+    ...state,
+    translate_source_hash: hashText(part.text ?? ""),
+    translate_en: english,
+  }
+}
+
+function createSyntheticTextPart(
+  sessionID: string,
+  messageID: string,
+  text: string,
+  metadata: Record<string, unknown>,
+): TextPartLike {
+  return {
+    id: createSyntheticPartID(),
+    sessionID,
+    messageID,
+    type: "text",
+    text,
+    synthetic: true,
+    ignored: true,
+    metadata,
+  }
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+export function findTriggerMatch(parts: TextPartLike[], triggerKeywords: string[]): TriggerMatch | undefined {
+  let eligibleIndex = 0
+  for (let partArrayIndex = 0; partArrayIndex < parts.length; partArrayIndex += 1) {
+    const part = parts[partArrayIndex]
+    if (!isUserAuthoredTextPart(part)) continue
+
+    let bestForPart: TriggerMatch | undefined
+    for (let keywordIndex = 0; keywordIndex < triggerKeywords.length; keywordIndex += 1) {
+      const keyword = triggerKeywords[keywordIndex]
+      const pattern = new RegExp(`(^|[ \\t\\r\\n\\f\\v])${escapeRegex(keyword)}(?=$|[ \\t\\r\\n\\f\\v])`)
+      const match = pattern.exec(part.text)
+      if (!match) continue
+      const offset = match.index + match[1].length
+      if (!bestForPart || offset < bestForPart.offset) {
+        bestForPart = {
+          partArrayIndex,
+          eligibleIndex,
+          keyword,
+          offset,
+        }
+      }
+    }
+
+    if (bestForPart) return bestForPart
+    eligibleIndex += 1
+  }
+
+  return undefined
+}
+
+export function stripTriggerKeyword(text: string, keyword: string, offset: number): string {
+  const lineStart = text.lastIndexOf("\n", offset - 1) + 1
+  const nextNewline = text.indexOf("\n", offset)
+  const lineEnd = nextNewline === -1 ? text.length : nextNewline
+  const line = text.slice(lineStart, lineEnd)
+  const localOffset = offset - lineStart
+
+  let rewrittenLine: string
+  if (localOffset === 0 && line.startsWith(`${keyword} `)) {
+    rewrittenLine = line.slice(keyword.length + 1)
+  } else if (
+    localOffset + keyword.length === line.length &&
+    localOffset > 0 &&
+    line.slice(localOffset - 1, localOffset) === " "
+  ) {
+    rewrittenLine = line.slice(0, localOffset - 1)
+  } else if (
+    localOffset > 0 &&
+    line.slice(localOffset - 1, localOffset) === " " &&
+    line.slice(localOffset + keyword.length, localOffset + keyword.length + 1) === " "
+  ) {
+    rewrittenLine = `${line.slice(0, localOffset - 1)} ${line.slice(localOffset + keyword.length + 1)}`
+  } else {
+    rewrittenLine = `${line.slice(0, localOffset)}${line.slice(localOffset + keyword.length)}`
+  }
+
+  return `${text.slice(0, lineStart)}${rewrittenLine}${text.slice(lineEnd)}`
+}
+
+async function resolveSessionState(
+  client: PluginClientLike,
+  directory: string | undefined,
+  sessionID: string,
+): Promise<ResolvedSessionState> {
+  const session = unwrapData(
+    await client.session.get({
+      path: { id: sessionID },
+      query: { ...(directory ? { directory } : {}) },
+      throwOnError: true,
+    }),
+  )
+  if (session.parentID != null) {
+    sessionStateCache.set(sessionID, null)
+    return { sessionActive: false, canActivate: false, storedMessages: [] }
+  }
+
+  const storedMessages = unwrapData(
+    await client.session.messages({
+      path: { id: sessionID },
+      query: { ...(directory ? { directory } : {}) },
+      throwOnError: true,
+    }),
+  )
+  const state = extractStoredState(storedMessages)
+  sessionStateCache.set(sessionID, state ?? null)
+
+  return {
+    sessionActive: Boolean(state),
+    canActivate: storedMessages.length === 0,
+    state: state ?? undefined,
+    storedMessages,
+  }
+}
+
+function shouldRequireCache(part: TextPartLike): boolean {
+  return isUserAuthoredTextPart(part) && part.text.trim().length > 0
+}
+
+export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, deps: HookDependencies = {}): Hooks {
+  if (process.env.OPENCODE_TRANSLATE_DISABLE === "1") {
+    return {}
+  }
+
+  const client = ctx.client as unknown as PluginClientLike
+  const options = resolveOptions(rawOptions)
+  const translator = deps.translator ?? createTranslator(client, options)
+
+  return {
+    "chat.message": async (input, output) => {
+      const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
+      let activeState = resolved.state
+      let activatedThisTurn = false
+
+      if (!activeState && resolved.canActivate) {
+        const match = findTriggerMatch(output.parts as TextPartLike[], options.triggerKeywords)
+        if (match) {
+          const part = output.parts[match.partArrayIndex] as TextPartLike & { text: string }
+          part.text = stripTriggerKeyword(part.text, match.keyword, match.offset)
+          activeState = createState(options)
+          if (!NONCE_PATTERN.test(activeState.translate_nonce)) {
+            throw new Error("Generated invalid translation nonce")
+          }
+          activatedThisTurn = true
+          sessionStateCache.set(input.sessionID, activeState)
+        }
+      }
+
+      if (!activeState) return
+
+      const nextParts: TextPartLike[] = []
+      let eligibleIndex = 0
+
+      for (const part of output.parts as TextPartLike[]) {
+        nextParts.push(part)
+        if (!isUserAuthoredTextPart(part)) continue
+
+        const currentEligibleIndex = eligibleIndex
+        eligibleIndex += 1
+        if (part.text.trim().length === 0) continue
+
+        try {
+          const english = await translator.translateText({
+            text: part.text,
+            sourceLanguage: activeState.translate_source_lang,
+            targetLanguage: LLM_LANGUAGE,
+            direction: "inbound",
+          })
+
+          const sourceHash = hashText(part.text)
+          part.metadata = {
+            ...(part.metadata ?? {}),
+            ...mergeTranslatedMetadata(activeState, part, english),
+          }
+
+          nextParts.push(
+            createSyntheticTextPart(part.sessionID, part.messageID, `→ EN: ${english}`, {
+              translate_role: "translation_preview",
+              translate_nonce: activeState.translate_nonce,
+              translate_source_hash: sourceHash,
+              translate_part_index: currentEligibleIndex,
+            }),
+          )
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            (error.message.includes(":AUTH_UNAVAILABLE]") || error.message.includes(":OAUTH_REFRESH_FAILED]"))
+          ) {
+            throw error
+          }
+          throw buildInboundTranslationError(activeState.translate_source_lang, normalizeReason(error))
+        }
+      }
+
+      if (activatedThisTurn) {
+        nextParts.push(
+          createSyntheticTextPart(input.sessionID, output.message.id, createActivationBannerText(options), {
+            ...activeState,
+            translate_role: "activation_banner",
+            translate_spec_version: SPEC_VERSION,
+          }),
+        )
+      }
+
+      output.parts.splice(0, output.parts.length, ...(nextParts as typeof output.parts))
+    },
+    "experimental.chat.messages.transform": async (_input, output) => {
+      const sessionID = output.messages[0]?.info.sessionID
+      if (!sessionID) return
+
+      const resolved = await resolveSessionState(client, ctx.directory, sessionID)
+      const activeState = resolved.state
+      if (!activeState) return
+
+      for (const message of output.messages as MessageWithPartsLike[]) {
+        if (message.info.role === "user") {
+          for (const part of message.parts) {
+            if (!isTextPart(part)) continue
+            if (!shouldRequireCache(part)) continue
+            const metadata = asMetadata(part)
+            const sourceHash = hashText(part.text)
+            if (
+              metadata.translate_enabled === true &&
+              metadata.translate_nonce === activeState.translate_nonce &&
+              metadata.translate_source_hash === sourceHash &&
+              typeof metadata.translate_en === "string"
+            ) {
+              part.text = metadata.translate_en
+              continue
+            }
+
+            throw buildStaleCacheError()
+          }
+        }
+
+        if (message.info.role === "assistant") {
+          for (const part of message.parts) {
+            if (!isTextPart(part)) continue
+            part.text = extractEnglishHistoryText(part.text, activeState.translate_nonce)
+          }
+        }
+      }
+    },
+    "experimental.text.complete": async (input, output) => {
+      const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
+      const activeState = resolved.state
+      if (!activeState) return
+
+      const message = unwrapData(
+        await client.session.message({
+          path: { id: input.sessionID, messageID: input.messageID },
+          query: { ...(ctx.directory ? { directory: ctx.directory } : {}) },
+          throwOnError: true,
+        }),
+      ) as MessageWithPartsLike & { info: Record<string, unknown> }
+
+      if (message.info.role !== "assistant") return
+      if (message.info.summary === true) return
+      if (activeState.translate_display_lang === LLM_LANGUAGE || output.text.length === 0) return
+
+      try {
+        const translated = await translator.translateText({
+          text: output.text,
+          sourceLanguage: LLM_LANGUAGE,
+          targetLanguage: activeState.translate_display_lang,
+          direction: "outbound",
+        })
+
+        output.text = composeTranslatedAssistantText(
+          output.text,
+          getDisplayLanguageLabel(activeState.translate_display_lang),
+          translated,
+          activeState.translate_nonce,
+        )
+      } catch (error) {
+        output.text = composeTranslationFailureText(output.text, activeState.translate_nonce)
+        await logError(client, error)
+      }
+    },
+  }
+}
