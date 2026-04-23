@@ -1,6 +1,6 @@
 {
   "name": "opencode-translate",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "OpenCode plugin that lets the user chat in a configured source language while the main chat loop only sees English.",
   "type": "module",
   "main": "src/index.ts",

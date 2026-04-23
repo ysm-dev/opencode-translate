@@ -124,6 +124,12 @@ function mergeTranslatedMetadata(state: TranslateState, part: TextPartLike, engl
   }
 }
 
+// OpenCode's flag semantics, observed from packages/opencode and packages/ui:
+//   synthetic: true  -> hidden from the user UI, still sent to the LLM
+//   ignored: true    -> hidden from the LLM, still shown in the user UI
+// The translation preview, activation banner, and failure notices are
+// user-facing status/diagnostic parts that must not leak into the LLM
+// prompt, so they use synthetic:false + ignored:true.
 function createSyntheticTextPart(
   sessionID: string,
   messageID: string,
@@ -136,7 +142,7 @@ function createSyntheticTextPart(
     messageID,
     type: "text",
     text,
-    synthetic: true,
+    synthetic: false,
     ignored: true,
     metadata,
   }
