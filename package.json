@@ -1,6 +1,6 @@
 {
   "name": "opencode-translate",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "OpenCode plugin that lets the user chat in a configured source language while the main chat loop only sees English.",
   "type": "module",
   "main": "src/index.ts",
@@ -42,17 +42,17 @@
     "@opencode-ai/plugin": ">=1.14.0"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^4.0.0",
-    "@ai-sdk/anthropic": "^3.0.0",
-    "@ai-sdk/google": "^3.0.0",
-    "@ai-sdk/google-vertex": "^4.0.0",
-    "@ai-sdk/openai": "^3.0.0",
-    "@ai-sdk/openai-compatible": "^2.0.0",
-    "ai": "^6.0.0"
+    "@ai-sdk/amazon-bedrock": "^4.0.96",
+    "@ai-sdk/anthropic": "^3.0.71",
+    "@ai-sdk/google": "^3.0.64",
+    "@ai-sdk/google-vertex": "^4.0.112",
+    "@ai-sdk/openai": "^3.0.53",
+    "@ai-sdk/openai-compatible": "^2.0.41",
+    "ai": "^6.0.168"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
-    "@opencode-ai/plugin": "^1.14.20",
+    "@opencode-ai/plugin": "^1.14.21",
     "@types/node": "^25.6.0",
     "@typescript/native-preview": "beta",
     "bun-types": "^1.3.13"
