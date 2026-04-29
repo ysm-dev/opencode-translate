@@ -5,7 +5,6 @@ export const DEFAULT_TRANSLATOR_MODEL = "anthropic/claude-haiku-4-5"
 export const DEFAULT_TRIGGER_KEYWORDS = ["$en"]
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
 export const NONCE_PATTERN = /^[0-9a-f]{32}$/
-export const PLACEHOLDER_PATTERN = /⟦OCTX:[^⟧]+⟧/g
 export const FAILURE_NOTICE = "_Translation unavailable for this segment._"
 export const AUTH_ENV_FALLBACK = "the provider's API key env var"
 export const USER_AGENT = `${PLUGIN_NAME}/0.0.0`

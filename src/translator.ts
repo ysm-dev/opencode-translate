@@ -13,7 +13,6 @@ import {
   type ResolvedTranslateOptions,
 } from "./constants"
 import { buildSystemPrompt, buildUserPrompt } from "./prompts"
-import { protectText, restoreProtectedText } from "./protect"
 
 interface TranslatorDependencies {
   generateTextImpl?: typeof generateText
@@ -226,84 +225,56 @@ export function createTranslator(
     const factory = await loadFactory(providerID)
     const provider = instantiateProvider(factory, providerID, credentials)
     const model = instantiateModel(provider, modelID)
-    const protectedText = protectText(input.text)
 
-    let missingPlaceholders: string[] | undefined
-    let lastError: unknown
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    const translated = await withRetry(async () => {
       try {
-        const translated = await withRetry(async () => {
-          try {
-            const result = (await withTimeout(
-              generateTextImpl({
-                model: model as never,
-                system: buildSystemPrompt({
-                  sourceLanguage: input.sourceLanguage,
-                  targetLanguage: input.targetLanguage,
-                  text: protectedText.text,
-                  strictPlaceholderRetry: missingPlaceholders,
-                }),
-                temperature: 0,
-                prompt: buildUserPrompt({
-                  sourceLanguage: input.sourceLanguage,
-                  targetLanguage: input.targetLanguage,
-                  text: protectedText.text,
-                }),
-              }) as Promise<{ text: string }>,
-              timeoutMs,
-              "Translator generateText",
-            )) as { text: string }
-            return result.text
-          } catch (error) {
-            if (isAuthMessage(error)) throw error
-            if (credentials.mode === "default" && credentialResolver.isMissingCredentialError(error)) {
-              throw modelProviderHint(providerID, credentials.provider)
-            }
-            throw error
-          }
-        }, sleepImpl)
-
-        const restored = restoreProtectedText(protectedText, translated)
-        if (!restored.ok) {
-          missingPlaceholders =
-            restored.missing.length > 0 ? restored.missing : protectedText.placeholders.map((item) => item.token)
-          lastError = new Error(`Protection check failed: ${restored.reason}`)
-          continue
-        }
-
-        if (options.verbose) {
-          await client.app.log({
-            body: {
-              service: PLUGIN_NAME,
-              level: "info",
-              message: "translated",
-              extra: {
-                direction: input.direction,
-                chars_in: input.text.length,
-                chars_out: restored.text.length,
-                ms: now() - startedAt,
-                cached: false,
-                model: options.translatorModel,
-              },
-            },
-          })
-        }
-
-        return restored.text
+        const result = (await withTimeout(
+          generateTextImpl({
+            model: model as never,
+            system: buildSystemPrompt({
+              sourceLanguage: input.sourceLanguage,
+              targetLanguage: input.targetLanguage,
+              text: input.text,
+            }),
+            temperature: 0,
+            prompt: buildUserPrompt({
+              sourceLanguage: input.sourceLanguage,
+              targetLanguage: input.targetLanguage,
+              text: input.text,
+            }),
+          }) as Promise<{ text: string }>,
+          timeoutMs,
+          "Translator generateText",
+        )) as { text: string }
+        return result.text
       } catch (error) {
         if (isAuthMessage(error)) throw error
-        lastError = error
+        if (credentials.mode === "default" && credentialResolver.isMissingCredentialError(error)) {
+          throw modelProviderHint(providerID, credentials.provider)
+        }
+        throw error
       }
+    }, sleepImpl)
+
+    if (options.verbose) {
+      await client.app.log({
+        body: {
+          service: PLUGIN_NAME,
+          level: "info",
+          message: "translated",
+          extra: {
+            direction: input.direction,
+            chars_in: input.text.length,
+            chars_out: translated.length,
+            ms: now() - startedAt,
+            cached: false,
+            model: options.translatorModel,
+          },
+        },
+      })
     }
 
-    if (lastError instanceof Error && lastError.message.includes(":AUTH_UNAVAILABLE]")) {
-      throw lastError
-    }
-    if (lastError instanceof Error && lastError.message.includes(":OAUTH_REFRESH_FAILED]")) {
-      throw lastError
-    }
-    throw new Error(normalizeReason(lastError))
+    return translated
   }
 
   return {
