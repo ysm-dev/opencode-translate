@@ -72,6 +72,41 @@ function fakeClient(storedMessages: MessageWithPartsLike[], parentID: string | n
   }
 }
 
+function countingClient(
+  storedMessages: MessageWithPartsLike[],
+  parentID: string | null = null,
+  messageResult?: MessageWithPartsLike,
+): { client: PluginClientLike; calls: { get: number; messages: number; message: number } } {
+  const calls = { get: 0, messages: 0, message: 0 }
+  const client: PluginClientLike = {
+    session: {
+      get: async () => {
+        calls.get += 1
+        return { id: "ses_1", parentID }
+      },
+      messages: async () => {
+        calls.messages += 1
+        return storedMessages
+      },
+      message: async (input) => {
+        calls.message += 1
+        const messageID = "messageID" in input ? input.messageID : input.path.messageID
+        return messageResult ?? storedMessages.find((message) => message.info.id === messageID) ?? storedMessages[0]
+      },
+    },
+    provider: {
+      list: async () => ({ all: [] }),
+    },
+    auth: {
+      set: async () => undefined,
+    },
+    app: {
+      log: async () => undefined,
+    },
+  }
+  return { client, calls }
+}
+
 describe("activation", () => {
   beforeEach(() => {
     __resetActivationCacheForTest()
@@ -248,6 +283,107 @@ describe("activation", () => {
 
     expect(calls).toBe(0)
     expect(output.parts).toHaveLength(1)
+  })
+
+  test("inactive session cache skips later session lookups", async () => {
+    let translatorCalls = 0
+    const counted = countingClient([])
+    const hooks = createHooks(
+      {
+        client: counted.client,
+        directory: "/workspace",
+      } as never,
+      { sourceLanguage: "ko", displayLanguage: "ko" },
+      {
+        translator: {
+          translateText: async ({ text }) => {
+            translatorCalls += 1
+            return `EN:${text}`
+          },
+        },
+      },
+    )
+
+    const firstOutput = {
+      message: { id: "msg_first" },
+      parts: [textPart("p1", "no trigger")],
+    }
+
+    await hooks["chat.message"]!({ sessionID: "ses_1" }, firstOutput as never)
+
+    expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
+    expect(translatorCalls).toBe(0)
+    expect((firstOutput.parts[0] as TextPartLike).text).toBe("no trigger")
+
+    const laterOutput = {
+      message: { id: "msg_later" },
+      parts: [textPart("p2", "$en later trigger")],
+    }
+    const transformOutput = {
+      messages: [storedMessage([textPart("hist", "previous")])],
+    }
+    const completeOutput = { text: "assistant text" }
+
+    await hooks["chat.message"]!({ sessionID: "ses_1" }, laterOutput as never)
+    await hooks["experimental.chat.messages.transform"]!({} as never, transformOutput as never)
+    await hooks["experimental.text.complete"]!(
+      { sessionID: "ses_1", messageID: "msg_assistant" } as never,
+      completeOutput,
+    )
+
+    expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
+    expect(translatorCalls).toBe(0)
+    expect((laterOutput.parts[0] as TextPartLike).text).toBe("$en later trigger")
+    expect(completeOutput.text).toBe("assistant text")
+  })
+
+  test("active session cache skips repeated state lookups across hooks", async () => {
+    const assistantMessage = storedMessage([textPart("assistant", "hello")], "assistant")
+    const counted = countingClient([], null, assistantMessage)
+    const calls: string[] = []
+    const hooks = createHooks(
+      {
+        client: counted.client,
+        directory: "/workspace",
+      } as never,
+      { sourceLanguage: "ko", displayLanguage: "ko" },
+      {
+        translator: {
+          translateText: async ({ text, direction }) => {
+            calls.push(direction)
+            return direction === "inbound" ? `EN:${text}` : `KO:${text}`
+          },
+        },
+      },
+    )
+
+    const output = {
+      message: { id: "msg_new" },
+      parts: [textPart("p1", "$en 안녕")],
+    }
+
+    await hooks["chat.message"]!({ sessionID: "ses_1" }, output as never)
+
+    expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
+    expect(calls).toEqual(["inbound"])
+
+    const transformOutput = {
+      messages: [storedMessage([{ ...(output.parts[0] as TextPartLike) }])],
+    }
+    await hooks["experimental.chat.messages.transform"]!({} as never, transformOutput as never)
+
+    expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
+    expect((transformOutput.messages[0].parts[0] as TextPartLike).text).toBe("EN:안녕")
+
+    const completeOutput = { text: "hello" }
+    await hooks["experimental.text.complete"]!(
+      { sessionID: "ses_1", messageID: "msg_assistant" } as never,
+      completeOutput,
+    )
+
+    expect(counted.calls).toEqual({ get: 1, messages: 1, message: 1 })
+    expect(calls).toEqual(["inbound", "outbound"])
+    expect(completeOutput.text).toContain("KO:hello")
   })
 
   test("multi-part ordering stays exact on activation turn", async () => {

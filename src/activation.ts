@@ -227,6 +227,16 @@ async function resolveSessionState(
   directory: string | undefined,
   sessionID: string,
 ): Promise<ResolvedSessionState> {
+  const cached = sessionStateCache.get(sessionID)
+  if (cached !== undefined) {
+    return {
+      sessionActive: Boolean(cached),
+      canActivate: false,
+      state: cached ?? undefined,
+      storedMessages: [],
+    }
+  }
+
   const session = unwrapData(
     await client.session.get({
       path: { id: sessionID },
