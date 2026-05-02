@@ -257,7 +257,11 @@ async function resolveSessionState(
     }),
   )
   const state = extractStoredState(storedMessages)
-  sessionStateCache.set(sessionID, state ?? null)
+  if (state) {
+    sessionStateCache.set(sessionID, state)
+  } else if (storedMessages.length > 0) {
+    sessionStateCache.set(sessionID, null)
+  }
 
   return {
     sessionActive: Boolean(state),
@@ -306,6 +310,8 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
             }
             activatedThisTurn = true
             sessionStateCache.set(input.sessionID, activeState)
+          } else {
+            sessionStateCache.set(input.sessionID, null)
           }
         }
 

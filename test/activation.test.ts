@@ -285,6 +285,46 @@ describe("activation", () => {
     expect(output.parts).toHaveLength(1)
   })
 
+  test("empty root session lookup before first chat does not block later activation", async () => {
+    const counted = countingClient([])
+    const calls: string[] = []
+    const hooks = createHooks(
+      {
+        client: counted.client,
+        directory: "/workspace",
+      } as never,
+      { sourceLanguage: "ko", displayLanguage: "ko" },
+      {
+        translator: {
+          translateText: async ({ text, direction }) => {
+            calls.push(direction)
+            return `EN:${text}`
+          },
+        },
+      },
+    )
+
+    await hooks["experimental.text.complete"]!({ sessionID: "ses_1", messageID: "msg_assistant" } as never, {
+      text: "pre-activation text",
+    })
+
+    expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
+
+    const output = {
+      message: { id: "msg_new" },
+      parts: [textPart("p1", "$en 안녕")],
+    }
+
+    await hooks["chat.message"]!({ sessionID: "ses_1" }, output as never)
+
+    expect(counted.calls).toEqual({ get: 2, messages: 2, message: 0 })
+    expect(calls).toEqual(["inbound"])
+    expect((output.parts[0] as TextPartLike).text).toBe("안녕")
+    expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:안녕")
+    expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("translation_preview")
+    expect((output.parts[2] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
+  })
+
   test("inactive session cache skips later session lookups", async () => {
     let translatorCalls = 0
     const counted = countingClient([])
