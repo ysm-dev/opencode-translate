@@ -11,6 +11,7 @@ import {
   type ProviderInfo,
   parseTranslatorModel,
   type ResolvedTranslateOptions,
+  unwrapData,
 } from "./constants"
 import { buildSystemPrompt, buildUserPrompt } from "./prompts"
 
@@ -226,6 +227,24 @@ export function createTranslator(
   const credentialResolver = deps.credentialResolver ?? createCredentialResolver(client, options)
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TRANSLATE_TIMEOUT_MS
 
+  async function resolveBaseURL(providerID: string): Promise<string | undefined> {
+    // Explicit baseURL in plugin options takes precedence
+    if (options.baseURL) return options.baseURL
+
+    // Try to get baseURL from OpenCode's provider configuration
+    try {
+      const providers = unwrapData(await client.provider.list({ throwOnError: true }))
+      const providerInfo = providers.all.find((p) => p.id === providerID)
+      if (providerInfo?.options?.baseURL) {
+        return providerInfo.options.baseURL as string
+      }
+    } catch {
+      // Ignore errors from provider list
+    }
+
+    return undefined
+  }
+
   async function translateText(input: TranslateTextInput): Promise<string> {
     if (!input.text) return input.text
     if (input.sourceLanguage === input.targetLanguage) return input.text
@@ -233,8 +252,9 @@ export function createTranslator(
     const startedAt = now()
     const { providerID, modelID } = parseTranslatorModel(options.translatorModel)
     const credentials = await credentialResolver.resolve(options.translatorModel)
+    const resolvedBaseURL = await resolveBaseURL(providerID)
     const factory = await loadFactory(providerID)
-    const provider = instantiateProvider(factory, providerID, { ...credentials, baseURL: options.baseURL })
+    const provider = instantiateProvider(factory, providerID, { ...credentials, baseURL: resolvedBaseURL })
     const model = instantiateModel(provider, modelID)
 
     const translated = await withRetry(async () => {
