@@ -8,14 +8,17 @@ const DEBUG_LOG = process.env.OPENCODE_TRANSLATE_DEBUG
     }
   : () => {}
 
+// Module-level probe: confirms the correct file was loaded
+DEBUG_LOG(`MODULE_LOADED`)
+
 const OpencodeTranslate: Plugin = async (ctx: PluginInput, options?: PluginOptions) => {
-  DEBUG_LOG("OpencodeTranslate called, creating hooks...")
+  DEBUG_LOG(`FUNCTION_CALLED ctx.directory=${ctx.directory}`)
   try {
     const hooks = createHooks(ctx, options ?? {})
-    DEBUG_LOG(`createHooks returned: keys=${Object.keys(hooks).join(",")}`)
+    DEBUG_LOG(`HOOKS_REGISTERED keys=${Object.keys(hooks).join(",")}`)
     return hooks
   } catch (e: any) {
-    DEBUG_LOG(`createHooks threw: ${e?.message ?? String(e)}`)
+    DEBUG_LOG(`INIT_ERROR ${e?.message ?? String(e)}`)
     throw e
   }
 }
@@ -25,5 +28,4 @@ const pluginModule: PluginModule = {
   server: OpencodeTranslate,
 }
 
-export { pluginModule as server }
 export default pluginModule
