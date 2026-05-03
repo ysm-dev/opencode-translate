@@ -296,12 +296,14 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
       try {
         writeFileSync("C:/Users/sxlon/AppData/Local/Temp/opencode-translate-debug.log", `${new Date().toISOString()} HOOK_FIRED chat.message\n`, { flag: "a" });
         const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
+        writeFileSync("C:/Users/sxlon/AppData/Local/Temp/opencode-translate-debug.log", `${new Date().toISOString()} CHAT_MSG activeState=${!!resolved.state} canActivate=${resolved.canActivate} msgs=${resolved.storedMessages.length}\n`, { flag: "a" });
         let activeState = resolved.state
         let activatedThisTurn = false
 
         if (!activeState && resolved.canActivate) {
           const match = findTriggerMatch(output.parts as TextPartLike[], options.triggerKeywords)
           if (match) {
+            writeFileSync("C:/Users/sxlon/AppData/Local/Temp/opencode-translate-debug.log", `${new Date().toISOString()} TRIGGER_MATCH keyword=${match.keyword} offset=${match.offset}\n`, { flag: "a" });
             const part = output.parts[match.partArrayIndex] as TextPartLike & { text: string }
             const originalText = part.text
             part.text = stripTriggerKeyword(part.text, match.keyword, match.offset)
@@ -315,6 +317,7 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
             sessionStateCache.set(input.sessionID, activeState)
           } else {
             sessionStateCache.set(input.sessionID, null)
+            writeFileSync("C:/Users/sxlon/AppData/Local/Temp/opencode-translate-debug.log", `${new Date().toISOString()} TRIGGER_NO_MATCH\n`, { flag: "a" });
           }
         }
 
