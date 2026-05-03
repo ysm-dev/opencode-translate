@@ -248,6 +248,30 @@ export function createTranslator(
     return undefined
   }
 
+  async function resolveApiKey(providerID: string): Promise<string | undefined> {
+    // Explicit apiKey in plugin options takes precedence
+    if (options.apiKey) return options.apiKey
+
+    // Try to get apiKey from OpenCode's provider configuration
+    try {
+      const providers = unwrapData(await client.provider.list({ throwOnError: true }))
+      const providerInfo = providers.all.find((p) => p.id === providerID)
+      if (providerInfo?.key) {
+        return providerInfo.key
+      }
+    } catch {
+      // Ignore errors from provider list
+    }
+
+    // Fallback: check common env var patterns
+    const envKey = `${providerID.toUpperCase().replace(/-/g, "_")}_API_KEY`
+    if (process.env[envKey]) {
+      return process.env[envKey]
+    }
+
+    return undefined
+  }
+
   async function translateText(input: TranslateTextInput): Promise<string> {
     if (!input.text) return input.text
     if (input.sourceLanguage === input.targetLanguage) return input.text
@@ -256,8 +280,13 @@ export function createTranslator(
     const { providerID, modelID } = parseTranslatorModel(options.translatorModel)
     const credentials = await credentialResolver.resolve(options.translatorModel)
     const resolvedBaseURL = await resolveBaseURL(providerID)
+    const resolvedApiKey = !credentials.apiKey ? await resolveApiKey(providerID) : undefined
     const factory = await loadFactory(providerID)
-    const provider = instantiateProvider(factory, providerID, { ...credentials, baseURL: resolvedBaseURL })
+    const provider = instantiateProvider(factory, providerID, {
+      ...credentials,
+      ...(resolvedApiKey ? { apiKey: resolvedApiKey } : {}),
+      baseURL: resolvedBaseURL,
+    })
     const model = instantiateModel(provider, modelID)
 
     const translated = await withRetry(async () => {
