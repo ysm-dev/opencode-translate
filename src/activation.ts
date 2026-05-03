@@ -300,7 +300,7 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
         let activeState = resolved.state
         let activatedThisTurn = false
 
-        if (!activeState && resolved.canActivate) {
+        if (!activeState) {
           const match = findTriggerMatch(output.parts as TextPartLike[], options.triggerKeywords)
           if (match) {
             writeFileSync("C:/Users/sxlon/AppData/Local/Temp/opencode-translate-debug.log", `${new Date().toISOString()} TRIGGER_MATCH keyword=${match.keyword} offset=${match.offset}\n`, { flag: "a" });
@@ -315,9 +315,9 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
             }
             activatedThisTurn = true
             sessionStateCache.set(input.sessionID, activeState)
-          } else {
+          } else if (resolved.canActivate) {
             sessionStateCache.set(input.sessionID, null)
-            writeFileSync("C:/Users/sxlon/AppData/Local/Temp/opencode-translate-debug.log", `${new Date().toISOString()} TRIGGER_NO_MATCH\n`, { flag: "a" });
+            writeFileSync("C:/Users/sxlon/AppData/Local/Temp/opencode-translate-debug.log", `${new Date().toISOString()} TRIGGER_NO_MATCH (fresh only)\n`, { flag: "a" });
           }
         }
 
