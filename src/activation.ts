@@ -422,10 +422,12 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
                 continue
               }
 
-              // Stale cache or untranslated text. Send it through as-is
-              // (English history would be ideal, but we shouldn't block the
-              // session). Also log so the user can diagnose if needed.
-              await logError(client, buildStaleCacheError())
+              // Only log stale cache if this message was previously translated
+              // but the cache is now invalid (nonce mismatch or hash mismatch).
+              // Messages without translate_enabled are just untranslated text.
+              if (metadata.translate_enabled === true && metadata.translate_nonce !== activeState.translate_nonce) {
+                await logError(client, buildStaleCacheError())
+              }
             }
           }
 
