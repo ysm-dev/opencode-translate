@@ -142,7 +142,9 @@ async function loadFactory(providerID: string): Promise<unknown> {
     const mod = await import("@ai-sdk/openai-compatible")
     factory = mod.createOpenAICompatible
   } else {
-    throw new Error(`Unsupported translator provider "${providerID}"`)
+    // Unknown provider: default to openai-compatible (custom endpoints like LongCat)
+    const mod = await import("@ai-sdk/openai-compatible")
+    factory = mod.createOpenAICompatible
   }
 
   if (typeof factory !== "function") {
