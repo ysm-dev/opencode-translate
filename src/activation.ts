@@ -293,6 +293,7 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
       // Instead, we log the failure and fall back to the untranslated text so
       // the chat keeps moving.
       try {
+        await client.app.log({ body: { service: PLUGIN_NAME, level: "info", message: "HOOK_FIRED chat.message" } })
         const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
         let activeState = resolved.state
         let activatedThisTurn = false
