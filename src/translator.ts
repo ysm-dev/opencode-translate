@@ -165,6 +165,7 @@ function instantiateProvider(
   const config = {
     ...(credentials.apiKey !== undefined ? { apiKey: credentials.apiKey } : {}),
     ...(credentials.fetch ? { fetch: credentials.fetch } : {}),
+    ...(credentials.baseURL ? { baseURL: credentials.baseURL } : {}),
   }
 
   if (providerID === "github-copilot") {
