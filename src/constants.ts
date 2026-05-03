@@ -19,6 +19,7 @@ export interface TranslateOptions {
   sourceLanguage?: string
   displayLanguage?: string
   apiKey?: string
+  baseURL?: string
   verbose?: boolean
 }
 
@@ -28,6 +29,7 @@ export interface ResolvedTranslateOptions {
   sourceLanguage: string
   displayLanguage: string
   apiKey?: string
+  baseURL?: string
   verbose: boolean
 }
 
@@ -186,6 +188,7 @@ export function resolveOptions(options: Record<string, unknown>): ResolvedTransl
     displayLanguage:
       typeof options.displayLanguage === "string" && options.displayLanguage.trim() ? options.displayLanguage : "en",
     apiKey: typeof options.apiKey === "string" && options.apiKey.length > 0 ? options.apiKey : undefined,
+    baseURL: typeof options.baseURL === "string" && options.baseURL.length > 0 ? options.baseURL : undefined,
     verbose: options.verbose === true,
   }
 }

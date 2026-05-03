@@ -137,7 +137,7 @@ async function loadFactory(providerID: string): Promise<unknown> {
   } else if (providerID === "amazon-bedrock") {
     const mod = await import("@ai-sdk/amazon-bedrock")
     factory = mod.createAmazonBedrock ?? mod.bedrock
-  } else if (providerID === "github-copilot") {
+  } else if (providerID === "github-copilot" || providerID === "openai-compatible") {
     const mod = await import("@ai-sdk/openai-compatible")
     factory = mod.createOpenAICompatible
   } else {
@@ -155,7 +155,7 @@ async function loadFactory(providerID: string): Promise<unknown> {
 function instantiateProvider(
   factory: unknown,
   providerID: string,
-  credentials: { apiKey?: string; fetch?: FetchLike },
+  credentials: { apiKey?: string; fetch?: FetchLike; baseURL?: string },
 ): unknown {
   if (typeof factory !== "function") throw new Error(`Invalid provider factory for "${providerID}"`)
 
@@ -169,6 +169,17 @@ function instantiateProvider(
       ...config,
       name: "github-copilot",
       baseURL: "https://api.githubcopilot.com",
+    })
+  }
+
+  if (providerID === "openai-compatible") {
+    if (!credentials.baseURL) {
+      throw new Error(`openai-compatible provider requires a baseURL option`)
+    }
+    return (factory as (config: Record<string, unknown>) => unknown)({
+      ...config,
+      name: "openai-compatible",
+      baseURL: credentials.baseURL,
     })
   }
 
@@ -223,7 +234,7 @@ export function createTranslator(
     const { providerID, modelID } = parseTranslatorModel(options.translatorModel)
     const credentials = await credentialResolver.resolve(options.translatorModel)
     const factory = await loadFactory(providerID)
-    const provider = instantiateProvider(factory, providerID, credentials)
+    const provider = instantiateProvider(factory, providerID, { ...credentials, baseURL: options.baseURL })
     const model = instantiateModel(provider, modelID)
 
     const translated = await withRetry(async () => {
