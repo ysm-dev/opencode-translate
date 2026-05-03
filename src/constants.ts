@@ -3,6 +3,7 @@ export const SPEC_VERSION = 1
 export const LLM_LANGUAGE = "en"
 export const DEFAULT_TRANSLATOR_MODEL = "anthropic/claude-haiku-4-5"
 export const DEFAULT_TRIGGER_KEYWORDS = ["$en"]
+export const DEFAULT_DISABLE_KEYWORDS = ["$dis"]
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
 export const NONCE_PATTERN = /^[0-9a-f]{32}$/
 export const FAILURE_NOTICE = "_Translation unavailable for this segment._"
@@ -16,6 +17,7 @@ export type ProviderSource = "env" | "config" | "custom" | "api"
 export interface TranslateOptions {
   translatorModel?: string
   triggerKeywords?: string[]
+  disableKeywords?: string[]
   sourceLanguage?: string
   displayLanguage?: string
   apiKey?: string
@@ -27,6 +29,7 @@ export interface TranslateOptions {
 export interface ResolvedTranslateOptions {
   translatorModel: string
   triggerKeywords: string[]
+  disableKeywords: string[]
   sourceLanguage: string
   displayLanguage: string
   apiKey?: string
@@ -179,12 +182,17 @@ export function resolveOptions(options: Record<string, unknown>): ResolvedTransl
     ? options.triggerKeywords.filter((value): value is string => typeof value === "string" && value.length > 0)
     : DEFAULT_TRIGGER_KEYWORDS
 
+  const disableKeywords = Array.isArray(options.disableKeywords)
+    ? options.disableKeywords.filter((value): value is string => typeof value === "string" && value.length > 0)
+    : DEFAULT_DISABLE_KEYWORDS
+
   return {
     translatorModel:
       typeof options.translatorModel === "string" && options.translatorModel.includes("/")
         ? options.translatorModel
         : DEFAULT_TRANSLATOR_MODEL,
     triggerKeywords: triggerKeywords.length > 0 ? triggerKeywords : [...DEFAULT_TRIGGER_KEYWORDS],
+    disableKeywords: disableKeywords.length > 0 ? disableKeywords : [...DEFAULT_DISABLE_KEYWORDS],
     sourceLanguage:
       typeof options.sourceLanguage === "string" && options.sourceLanguage.trim() ? options.sourceLanguage : "en",
     displayLanguage:

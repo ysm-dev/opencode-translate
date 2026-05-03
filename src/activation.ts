@@ -296,8 +296,19 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
         const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
         let activeState = resolved.state
         let activatedThisTurn = false
+        let disabledThisTurn = false
 
-        if (!activeState) {
+        // Check for disable keyword first (works even if translation is active)
+        const disableMatch = findTriggerMatch(output.parts as TextPartLike[], options.disableKeywords)
+        if (disableMatch) {
+          const part = output.parts[disableMatch.partArrayIndex] as TextPartLike & { text: string }
+          part.text = stripTriggerKeyword(part.text, disableMatch.keyword, disableMatch.offset)
+          sessionStateCache.set(input.sessionID, null)
+          activeState = undefined
+          disabledThisTurn = true
+        }
+
+        if (!activeState && !disabledThisTurn) {
           const match = findTriggerMatch(output.parts as TextPartLike[], options.triggerKeywords)
           if (match) {
             const part = output.parts[match.partArrayIndex] as TextPartLike & { text: string }
@@ -316,7 +327,7 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
           }
         }
 
-        if (!activeState) return
+        if (!activeState && !disabledThisTurn) return
 
         const nextParts: TextPartLike[] = []
         let eligibleIndex = 0
@@ -385,6 +396,15 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
           nextParts.push(
             createSyntheticTextPart(input.sessionID, output.message.id, createActivationBannerText(options), {
               ...activeState,
+              translate_role: "activation_banner",
+              translate_spec_version: SPEC_VERSION,
+            }),
+          )
+        }
+
+        if (disabledThisTurn) {
+          nextParts.push(
+            createSyntheticTextPart(input.sessionID, output.message.id, "✗ Translation disabled", {
               translate_role: "activation_banner",
               translate_spec_version: SPEC_VERSION,
             }),
