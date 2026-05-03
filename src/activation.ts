@@ -295,12 +295,15 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
       try {
         await client.app.log({ body: { service: PLUGIN_NAME, level: "info", message: "HOOK_FIRED chat.message" } })
         const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
+        await client.app.log({ body: { service: PLUGIN_NAME, level: "info", message: `RESOLVED state=${!!resolved.state} canActivate=${resolved.canActivate} msgs=${resolved.storedMessages.length}` } })
         let activeState = resolved.state
         let activatedThisTurn = false
 
         if (!activeState) {
           const match = findTriggerMatch(output.parts as TextPartLike[], options.triggerKeywords)
+          await client.app.log({ body: { service: PLUGIN_NAME, level: "info", message: `TRIGGER_CHECK match=${!!match}` } })
           if (match) {
+            await client.app.log({ body: { service: PLUGIN_NAME, level: "info", message: `TRIGGER_MATCH keyword=${match.keyword}` } })
             const part = output.parts[match.partArrayIndex] as TextPartLike & { text: string }
             const originalText = part.text
             part.text = stripTriggerKeyword(part.text, match.keyword, match.offset)
