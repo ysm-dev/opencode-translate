@@ -36,7 +36,8 @@
     "lint:check": "biome lint .",
     "check": "biome check --write .",
     "check:ci": "biome check .",
-    "test": "bun test"
+    "test": "bun test",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --external @opencode-ai/plugin --external @ai-sdk/anthropic --external @ai-sdk/openai --external @ai-sdk/google --external @ai-sdk/google-vertex --external @ai-sdk/amazon-bedrock --external @ai-sdk/openai-compatible --external ai"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.14.0"
