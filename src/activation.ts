@@ -3,7 +3,6 @@ import { randomBytes } from "node:crypto"
 import type { Hooks, PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import {
   buildInboundTranslationError,
-  buildStaleCacheError,
   isTextPart,
   isTranslateStateRecord,
   isUserAuthoredTextPart,
@@ -160,6 +159,28 @@ function createSyntheticTextPart(
   }
 }
 
+// LLM-only text part: hidden from the TUI but the only LLM-visible
+// representation of the user's source-language text. The original
+// user-authored part is marked `ignored:true` so the LLM never sees it,
+// and this synthetic English twin carries the actual prompt content.
+function createLlmOnlyTextPart(
+  sessionID: string,
+  messageID: string,
+  text: string,
+  metadata: Record<string, unknown>,
+): TextPartLike {
+  return {
+    id: createSyntheticPartID(),
+    sessionID,
+    messageID,
+    type: "text",
+    text,
+    synthetic: true,
+    ignored: false,
+    metadata,
+  }
+}
+
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
@@ -272,10 +293,6 @@ async function resolveSessionState(
   }
 }
 
-function shouldRequireCache(part: TextPartLike): boolean {
-  return isUserAuthoredTextPart(part) && part.text.trim().length > 0
-}
-
 export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, deps: HookDependencies = {}): Hooks {
   if (process.env.OPENCODE_TRANSLATE_DISABLE === "1") {
     return {}
@@ -354,6 +371,21 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
               ...(part.metadata ?? {}),
               ...mergeTranslatedMetadata(activeState, part, english),
             }
+            // Hide the user's source-language text from the LLM. The TUI
+            // still renders it because `ignored:true` only affects the
+            // user-side LLM serializer (`message-v2.ts:773`).
+            part.ignored = true
+
+            // LLM-only English twin. This is the actual prompt the model
+            // sees in place of the now-`ignored` source-language part.
+            nextParts.push(
+              createLlmOnlyTextPart(part.sessionID, part.messageID, english, {
+                translate_role: "llm_only_translation",
+                translate_nonce: activeState.translate_nonce,
+                translate_source_hash: sourceHash,
+                translate_part_index: currentEligibleIndex,
+              }),
+            )
           } catch (error) {
             // Fall back to sending the original text to the LLM so the user
             // still gets a response. Surface the error as a synthetic part.
@@ -416,37 +448,16 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
         const activeState = resolved.state
         if (!activeState) return
 
+        // User parts need no in-place rewriting: the source-language text
+        // part is `ignored:true` so the LLM serializer skips it, and a
+        // synthetic English twin (created in `chat.message`) carries the
+        // actual prompt content. Only assistant parts still need their
+        // localized trailer stripped before re-entering the model.
         for (const message of output.messages as MessageWithPartsLike[]) {
-          if (message.info.role === "user") {
-            for (const part of message.parts) {
-              if (!isTextPart(part)) continue
-              if (!shouldRequireCache(part)) continue
-              const metadata = asMetadata(part)
-              const sourceHash = hashText(part.text)
-              if (
-                metadata.translate_enabled === true &&
-                metadata.translate_nonce === activeState.translate_nonce &&
-                metadata.translate_source_hash === sourceHash &&
-                typeof metadata.translate_en === "string"
-              ) {
-                part.text = metadata.translate_en
-                continue
-              }
-
-              // Only log stale cache if this message was previously translated
-              // but the cache is now invalid (nonce mismatch or hash mismatch).
-              // Messages without translate_enabled are just untranslated text.
-              if (metadata.translate_enabled === true && metadata.translate_nonce !== activeState.translate_nonce) {
-                await logError(client, buildStaleCacheError())
-              }
-            }
-          }
-
-          if (message.info.role === "assistant") {
-            for (const part of message.parts) {
-              if (!isTextPart(part)) continue
-              part.text = extractEnglishHistoryText(part.text, activeState.translate_nonce)
-            }
+          if (message.info.role !== "assistant") continue
+          for (const part of message.parts) {
+            if (!isTextPart(part)) continue
+            part.text = extractEnglishHistoryText(part.text, activeState.translate_nonce)
           }
         }
       } catch (error) {

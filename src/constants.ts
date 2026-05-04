@@ -230,12 +230,6 @@ export function buildInboundTranslationError(sourceLanguage: string, reason: str
   )
 }
 
-export function buildStaleCacheError(): Error {
-  return new Error(
-    `[${PLUGIN_NAME}:STALE_CACHE] A previously translated user message was edited. Resend the message or start a new session.`,
-  )
-}
-
 export function buildAuthUnavailableError(providerID: string, envVar: string): Error {
   return new Error(
     `[${PLUGIN_NAME}:AUTH_UNAVAILABLE] No credential found for provider "${providerID}". Set ${envVar} in the environment, run "opencode auth login ${providerID}", or set options.apiKey in opencode.json.`,

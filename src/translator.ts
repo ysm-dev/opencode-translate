@@ -304,7 +304,11 @@ export function createTranslator(
     // Explicit baseURL in plugin options takes precedence
     if (options.baseURL) return options.baseURL
 
-    // Try to get baseURL from OpenCode's provider configuration (official providers)
+    // Try opencode.json first (custom providers like LongCat, SiliconFlow)
+    const config = await resolveProviderFromConfig(providerID)
+    if (config.baseURL) return config.baseURL
+
+    // Fallback: try OpenCode's provider configuration (official providers)
     try {
       const providers = unwrapData(await client.provider.list({ throwOnError: true }))
       const providerInfo = providers.all.find((p) => p.id === providerID)
@@ -315,16 +319,18 @@ export function createTranslator(
       // Ignore errors from provider list
     }
 
-    // Fallback: try opencode.json for custom providers
-    const config = await resolveProviderFromConfig(providerID)
-    return config.baseURL
+    return undefined
   }
 
   async function resolveApiKey(providerID: string): Promise<string | undefined> {
     // Explicit apiKey in plugin options takes precedence
     if (options.apiKey) return options.apiKey
 
-    // Try to get apiKey from OpenCode's provider configuration (official providers)
+    // Try opencode.json first (custom providers like LongCat, SiliconFlow)
+    const config = await resolveProviderFromConfig(providerID)
+    if (config.apiKey) return config.apiKey
+
+    // Fallback: try OpenCode's provider configuration (official providers)
     try {
       const providers = unwrapData(await client.provider.list({ throwOnError: true }))
       const providerInfo = providers.all.find((p) => p.id === providerID)
@@ -334,10 +340,6 @@ export function createTranslator(
     } catch {
       // Ignore errors from provider list
     }
-
-    // Fallback: try opencode.json for custom providers
-    const config = await resolveProviderFromConfig(providerID)
-    if (config.apiKey) return config.apiKey
 
     // Fallback: check common env var patterns
     const envKey = `${providerID.toUpperCase().replace(/-/g, "_")}_API_KEY`

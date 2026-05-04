@@ -1,6 +1,6 @@
 # `opencode-translate` — Specification
 
-> Status: Draft v5 · Owner: [@ysm-dev](https://github.com/ysm-dev)
+> Status: Draft v6 · Owner: [@ysm-dev](https://github.com/ysm-dev)
 > Target platform: [OpenCode](https://github.com/anomalyco/opencode) plugin
 > Plugin API: `@opencode-ai/plugin` ( https://opencode.ai/docs/plugins/ )
 
@@ -18,10 +18,14 @@ only**. The plugin is a translation proxy that:
    user's original non-English text in the message history it consumes in
    the main loop (`packages/opencode/src/session/prompt.ts:1471`) or in
    the compaction summariser
-   (`packages/opencode/src/session/compaction.ts:303`). Both paths invoke
-   `experimental.chat.messages.transform`, which is where the plugin swaps
-   stored source-language text for cached English before
-   `MessageV2.toModelMessagesEffect` serialises it.
+   (`packages/opencode/src/session/compaction.ts:303`). The source-language
+   text part is marked `ignored: true` so the user-side LLM serialiser
+   (`MessageV2.toModelMessagesEffect`) skips it, and a sibling
+   `synthetic: true` part carrying the pure English translation is the
+   only LLM-visible representation of that user text. The
+   `experimental.chat.messages.transform` hook is now responsible only
+   for stripping the localized assistant-side trailer (§5.2) before
+   history re-enters the model.
 3. Translates the main LLM's English response back into the user's
    configured `displayLanguage` for rendering in the TUI / client.
 4. Is **session-scoped**: activation happens once per session via a prefix
@@ -159,22 +163,39 @@ object.
 
 ### 3.4 Part schema fields relevant to us
 
-From `packages/opencode/src/session/message-v2.ts`:
+From `packages/opencode/src/session/message-v2.ts`, plus observed TUI
+behaviour in `packages/ui`:
 
 - `TextPart.text: string`
-- `TextPart.synthetic?: boolean` — marks a part the user did not author.
+- `TextPart.synthetic?: boolean` — observed in OpenCode core and TUI:
+  `synthetic: true` parts are **hidden from the user UI** while still
+  participating in LLM serialisation. The plugin uses this flag to add
+  LLM-only English twin parts that should never render in the TUI
+  (§5.1).
 - `TextPart.ignored?: boolean` — tells the core to skip this part when
   serialising user messages for the LLM (`toModelMessagesEffect`,
   `message-v2.ts:773`). Assistant-side part serialisation does **not**
-  check either of these flags (`message-v2.ts:828-834`).
+  check either of these flags (`message-v2.ts:828-834`). The plugin
+  uses this flag to keep the source-language user text visible in the
+  TUI while excluding it from the LLM (§5.1).
 - `TextPart.metadata?: Record<string, any>` — free-form durable key/value
-  attached to the part. Carries our cached translation and activation
-  state.
+  attached to the part. Carries activation state and a cached English
+  translation (kept for state continuity even though the LLM-only
+  synthetic twin now carries the prompt content directly).
 
 Because `ignored` is respected only on the user side, the plugin cannot
 hide content from the LLM by setting `ignored` on assistant parts. The
 outbound history-rewrite strategy (see §5.2) exists precisely to solve
 this on the assistant side.
+
+The two flags are orthogonal:
+
+| `synthetic` | `ignored` | UI | LLM | Plugin uses this for |
+| --- | --- | --- | --- | --- |
+| `false` (or absent) | `false` (or absent) | visible | visible | (untouched user-authored part — pre-translation) |
+| `false` | `true` | visible | hidden | source-language user text (post-translation), `→ EN: ...` UI preview, activation banner, translation-failure notice |
+| `true` | `false` | hidden | visible | LLM-only English twin part |
+| `true` | `true` | hidden | hidden | (not used by the plugin; effectively dead) |
 
 ### 3.5 Plugin module shape
 
@@ -237,7 +258,8 @@ can and cannot guarantee.
   saved, so the LLM never sees the raw keyword.
 - A plugin-owned activation banner part is pushed *and used as the
   canonical state anchor*. It is a `TextPart` with
-  `synthetic: true, ignored: true` and metadata:
+  `synthetic: false, ignored: true` (UI-visible, hidden from the LLM
+  per §3.4) and metadata:
 
   ```ts
   {
@@ -252,7 +274,11 @@ can and cannot guarantee.
   ```
 
   The banner is visible in the UI and is excluded from the LLM context
-  because `ignored: true` is respected on the user side.
+  because `ignored: true` is respected on the user side. Earlier drafts
+  of this spec specified `synthetic: true, ignored: true`, but
+  combining both flags would also hide the banner from the TUI; the
+  observed TUI semantic for `synthetic: true` is "do not render this
+  part" (§3.4).
 - `translate_nonce` is generated exactly once on activation as
   `crypto.randomBytes(16).toString("hex")`. Implementations MUST emit
   lowercase hex and MUST reject any recovered nonce that does not match
@@ -378,51 +404,65 @@ translation-enabled one.
              parts; §6.6):
               - if stripping the activating keyword left this part empty
                 after `trim()`, leave the part text as-is and do NOT
-                translate it and do NOT emit a preview for it
+                translate it and do NOT emit a preview or LLM-only twin
+                for it
               - translate source→English via ai.generateText
               - write durable metadata on the part:
                   translate_enabled, translate_source_lang,
                   translate_display_lang, translate_llm_lang,
                   translate_nonce, translate_source_hash,
                   translate_en.
-         b. push one plugin-owned preview part per translated source
-            text part, immediately after that source text part:
-             { type:"text", synthetic:true, ignored:true,
-               text:"→ EN: <translated>",
-               metadata: { translate_role: "translation_preview",
-                           translate_nonce, translate_source_hash,
-                           translate_part_index } }
+              - mutate the part to `ignored: true` so the user-side
+                LLM serialiser (`message-v2.ts:773`) skips it. The part
+                stays user-authored otherwise (`synthetic` is left
+                falsy) and remains visible in the TUI.
+         b. immediately after each translated source text part, push two
+            plugin-owned siblings, in this exact order:
+              1. UI preview part — visible in the TUI, hidden from the
+                 LLM:
+                  { type:"text", synthetic:false, ignored:true,
+                    text:"→ EN: <translated>",
+                    metadata: { translate_role: "translation_preview",
+                                translate_nonce, translate_source_hash,
+                                translate_part_index } }
+              2. LLM-only English twin part — hidden from the TUI,
+                 visible to the LLM. This is the **actual prompt
+                 content** the model sees in place of the now-`ignored`
+                 source-language part:
+                  { type:"text", synthetic:true, ignored:false,
+                    text:"<translated>",
+                    metadata: { translate_role: "llm_only_translation",
+                                translate_nonce, translate_source_hash,
+                                translate_part_index } }
          c. If activation occurred on this turn, append exactly one
             activation banner as the FINAL part of the message.
     6. If any translation in (5a) fails after §6.4's retry policy, the
-       hook THROWS. The core has not yet persisted anything from this
-       turn (it persists after the hook returns; §3.2), so no partial
-       state leaks to storage. The error surfaces through
-       the caller's normal error path (§6.4, §10.4). No synthetic
-       "translation failed" part is pushed, because such a part would
-       also not be persisted after a throw.
+       plugin does NOT throw. Instead it leaves the source part
+       untouched (no `ignored: true`, no metadata mutation, no LLM-only
+       twin) so the original text reaches the LLM as a degraded
+       fallback, and pushes a synthetic UI-only failure-notice part
+       (`synthetic:false, ignored:true`,
+       `translate_role: "translation_failure"`) describing the
+       problem. If activation happened on this turn AND every eligible
+       user-authored part failed, the plugin rolls back activation so
+       the next turn can retry cleanly.
     7. The core then persists message + all (mutated + new) parts.
                │
                ▼
   experimental.chat.messages.transform hook
   (main loop per iteration, and also compaction.ts:303):
 
-    Pure cache lookup — NO network calls here.
+    Pure stateless rewrite — NO network calls here.
 
-    For each user TextPart whose metadata.translate_enabled is true,
-    AND whose metadata.translate_nonce matches the active session nonce,
-    AND whose metadata.translate_source_hash matches
-        lowercase-hex sha256(UTF-8(part.text)).slice(0,16):
-      - swap part.text with metadata.translate_en for this in-memory
-        pass (mutations are not persisted).
-
-    For each user TextPart that SHOULD have been translated (translation
-    is active, the part is user-authored, part.text is non-empty) but
-    whose cache is missing OR whose hash does not match:
-      - do NOT translate on the fly — see §6.5. Throw the exact
-        `STALE_CACHE` error from §6.4. The turn is aborted before the
-        main LLM is called. v1 does not self-heal edited historical
-        messages.
+    User-side parts need no in-place rewriting:
+      - The source-language user-authored part is `ignored: true`, so
+        the LLM serialiser skips it.
+      - The LLM-only synthetic twin part (added in `chat.message`) is
+        the model's view of that user message.
+      - Legacy translation-failure fallback parts (no `ignored: true`,
+        no twin) are left as-is; the model sees the source-language
+        text inline. v1 does not self-heal edited historical messages
+        and the transform hook never re-translates (§6.5).
 
     For each assistant TextPart whose stored text contains the outbound
     nonce trailer (see §5.2) matching the active session nonce, trim
@@ -457,12 +497,14 @@ translation-enabled one.
 - No other whitespace normalization is performed. Newlines are never
   added, removed, or collapsed by trigger stripping.
 - The plugin MUST preserve the original order of all existing user parts.
-  It may only insert synthetic preview parts immediately after the source
-  text part they describe, plus a single activation banner at the very
-  end of the message on the activation turn.
+  It may insert exactly two siblings — the UI preview and the LLM-only
+  English twin, in that order — immediately after the source text part
+  they describe, plus a single activation banner at the very end of the
+  message on the activation turn.
 - `translate_part_index` is the zero-based ordinal of the translated
   user-authored text part within the original message's eligible text
-  parts.
+  parts. The UI preview and the LLM-only twin share the same
+  `translate_part_index` for a given source part.
 
 ### 5.2 Outbound (LLM → user)
 
@@ -758,9 +800,16 @@ templates so callers can display or match them consistently.
 | Condition | Exact thrown message |
 | --- | --- |
 | Fresh-message inbound translation fails after retries | `[opencode-translate:INBOUND_TRANSLATION_FAILED] Failed to translate user message from {sourceLanguage} to en: {reason}` |
-| Historical translated message hash mismatch / cache missing in transform | `[opencode-translate:STALE_CACHE] A previously translated user message was edited. Resend the message or start a new session.` |
 | Resolver finds no usable credential for the translator provider | `[opencode-translate:AUTH_UNAVAILABLE] No credential found for provider "{providerID}". Set {envVar} in the environment, run "opencode auth login {providerID}", or set options.apiKey in opencode.json.` |
 | OAuth refresh fails after retries | `[opencode-translate:OAUTH_REFRESH_FAILED] Failed to refresh OAuth token for provider "{providerID}": {reason}. Re-authenticate with "opencode auth login {providerID}".` |
+
+Earlier drafts also defined a `STALE_CACHE` thrown error fired from
+`experimental.chat.messages.transform` when a historical user message
+was edited. v6 removes that error entirely: the transform hook no
+longer rewrites user parts (§5.1), so there is no cache hash to
+mismatch in the first place. Editing a historical translated message
+silently uses the now-orphaned LLM-only twin from the original
+translation; the user can recover by resending the message.
 
 `{reason}` is the translator/provider error normalised as: first line
 only, `trim()` applied, maximum 200 characters. `{envVar}` is the first
@@ -796,9 +845,6 @@ API key env var` is substituted.
     The plugin does **not** guarantee a synthetic in-chat part or a
     session bus event for synchronous callers; it guarantees only the
     thrown message text.
-  - **Inbound** (in `experimental.chat.messages.transform`): throw
-    with the exact `STALE_CACHE` message above. Same transport caveat as
-    the previous bullet applies.
   - **Outbound** (in `experimental.text.complete`): leave
     `output.text` unchanged and append the inline failure trailer
     using the active session nonce (§5.2). The user immediately sees
@@ -817,38 +863,56 @@ API key env var` is substituted.
 ### 6.5 Caching
 
 - **Key**: `lowercase hex sha256(UTF-8(part.text)).slice(0, 16)`, stored as
-  `metadata.translate_source_hash`.
-- **Location**: `metadata.translate_en` +
-  `metadata.translate_source_hash` on the user text part. Written by
-  `chat.message`; read by `experimental.chat.messages.transform`.
-- **Invalidation**: transform compares the stored hash against the
-  current `part.text` hash. A mismatch (edited historical user
-  message) aborts the turn (§5.1, §6.4). v1 does **not** silently
-  re-translate on cache miss from inside the transform hook, because:
-  1. transform mutations are not persisted (§3.2), so any
-     re-translated value would be thrown away after the turn,
-     guaranteeing the miss happens again next turn — an expensive
-     infinite re-translation loop.
-  2. the right fix is for the user to resend the message (which
-     re-enters `chat.message` and re-populates the cache) or to
-     start a new session.
-
-Editing *historical* messages in a translation-enabled session is
-therefore unsupported in v1; see §16 for the v2 plan.
+  `metadata.translate_source_hash` on the user-authored source-language
+  part.
+- **Location**: `metadata.translate_en` + `metadata.translate_source_hash`
+  on the source-language user text part. Written by `chat.message`.
+- **Use**: in v6 the cache is **not** consulted during the LLM-history
+  rewrite path: the LLM-only synthetic twin part already carries the
+  English prompt content directly. The metadata is retained for two
+  reasons:
+  1. State continuity. `extractStoredState` (§4.4) treats any
+     translation-enabled user-authored part as a fallback anchor when
+     the activation banner is missing; the metadata schema is the
+     contract for that fallback.
+  2. Debuggability and forward migration. A future translator-side
+     re-translation feature (§16) can compare the stored hash against
+     the current `part.text` hash without re-reading the synthetic
+     twin's text.
+- **Invalidation**: none. Editing a historical user message in a
+  translation-enabled session is still **unsupported** in v1: the
+  LLM-only twin is not regenerated from the edited source text. The
+  user can recover by resending the message (which re-enters
+  `chat.message` and produces a new ignored source / preview / twin
+  triple) or by starting a new session. v6 removed the
+  transform-hook `STALE_CACHE` throw because the user-side rewrite
+  path it guarded no longer exists; see §16 for the self-healing
+  v2 plan.
 
 ### 6.6 Parallelism & scope control
 
 - The plugin only translates user-authored text parts — parts where
-  `synthetic !== true` and `ignored !== true`. This excludes opencode's
-  own synthetic parts (e.g. the compaction auto-continue marker at
+  `synthetic !== true` and `ignored !== true` at the time the
+  `chat.message` hook fires. This excludes opencode's own synthetic
+  parts (e.g. the compaction auto-continue marker at
   `compaction.ts:442`, which has `compaction_continue: true`) so
   internal English plumbing is never garbled by the translator.
-- In steady state only the newest user message is uncached per turn;
-  everything else hits the metadata cache. Translation calls are
-  issued sequentially to preserve ordering and keep provider
-  rate-limits predictable.
+  Note that the plugin sets `ignored: true` on the source part
+  **after** translating it (§5.1.5a), so the in-loop user-authored
+  detection is unaffected; only stored historical parts re-read on
+  later hook invocations carry the `ignored: true` flag, and the
+  in-loop detection never reaches them.
+- Each user-authored part is translated exactly once per turn (in
+  `chat.message`) and never re-translated afterwards. There is no
+  hot-path "cache hit" code path in v6 because there is no rewrite to
+  short-circuit; the LLM sees the synthetic twin part as authoritative
+  on every subsequent turn.
+- Translation calls are issued sequentially to preserve ordering and
+  keep provider rate-limits predictable.
 - The transform hook never makes network calls (§6.5), so it stays
-  O(messages) cheap even in tool-heavy turns.
+  O(messages) cheap even in tool-heavy turns. After v6 it does even
+  less work than before — only the assistant trailer stripping
+  remains.
 
 ### 6.7 Question tool translation
 
@@ -998,12 +1062,16 @@ Degenerate configurations:
 
 | Content | Translated? | Notes |
 | --- | --- | --- |
-| User-authored text parts (`synthetic !== true`, `ignored !== true`) | Yes (source → English) | Cached in `metadata.translate_en` + `translate_source_hash`. |
-| Synthetic user text parts (opencode's compaction auto-continue, our banner/preview, etc.) | No | Skipped in §6.6 to avoid corrupting internal English plumbing. |
+| User-authored text parts (`synthetic !== true`, `ignored !== true` when first observed) | Yes (source → English) | Source part stays user-authored in storage but is mutated to `ignored: true` so the LLM serialiser skips it. The English translation is emitted as a sibling synthetic LLM-only part (`synthetic: true, ignored: false`); the same English is also cached in `metadata.translate_en` + `translate_source_hash` for state continuity (§6.5). |
+| Plugin-owned LLM-only English twin (`synthetic: true, ignored: false`, `translate_role: "llm_only_translation"`) | n/a — *is* the translation | Created in `chat.message` immediately after the UI preview part. Hidden from the TUI; the only LLM-visible representation of the user message. |
+| Plugin-owned UI preview (`synthetic: false, ignored: true`, `translate_role: "translation_preview"`, text `→ EN: <translated>`) | n/a — *is* the translation | Visible in the TUI, hidden from the LLM. |
+| Plugin-owned activation banner (`synthetic: false, ignored: true`, `translate_role: "activation_banner"`) | n/a | Visible in the TUI, hidden from the LLM. |
+| Plugin-owned translation-failure notice (`synthetic: false, ignored: true`, `translate_role: "translation_failure"`) | n/a | Visible in the TUI, hidden from the LLM. The accompanying source-language part stays without `ignored: true` so the LLM still sees the original (untranslated) text as a degraded fallback. |
+| Synthetic user text parts authored by opencode (compaction auto-continue marker, etc.) | No | Skipped in §6.6 to avoid corrupting internal English plumbing. |
 | All assistant text parts | Yes (English → `displayLanguage`) | Every `text-end`. Rendered as dual-language with a nonce-scoped marker pair. |
 | Reasoning parts | No | Collapsed in UI; translating adds cost without benefit. |
 | Session title | **No, and not forced English in v1** | Path bypasses transform (§3.7, §5.3). Candidate for v2. |
-| Compaction LLM input | Yes (via transform at `compaction.ts:303`) | Compaction model sees English. |
+| Compaction LLM input | Yes (via the same architecture as the main loop) | Compaction transform path sees the same `ignored:true` source / synthetic English twin pair, so the compaction model also sees English. |
 | Compaction summary *storage* part | No | Stays English in v1; inherited by subsequent turns. |
 | Tool names / inputs / outputs | No | Internal plumbing; paths and commands are English. |
 | Subagent (task) internal messages | No | Session has `parentID`; plugin returns early (§4.5). |
@@ -1013,13 +1081,22 @@ Degenerate configurations:
 ### 10.1 Input display
 
 - The user's original message is shown exactly as typed; the source
-  language stays in the source language in the UI and in storage.
+  language stays in the source language both in the TUI and in storage.
+  In v6 the plugin additionally sets `ignored: true` on the source
+  part so the LLM serialiser skips it; the part is still
+  user-authored (`synthetic` is left falsy) and is rendered normally
+  in the TUI.
 - Directly below the user message, a plugin-owned text part shows
   `→ EN: <translated>` with
-  `synthetic: true, ignored: true,
+  `synthetic: false, ignored: true,
   metadata.translate_role: "translation_preview"`. It is visible in
-  the UI and excluded from the LLM context because the user-side
+  the TUI and excluded from the LLM context because the user-side
   serialiser (`message-v2.ts:773`) skips `ignored:true` text parts.
+- Sitting next to the preview is the LLM-only English twin part with
+  `synthetic: true, ignored: false,
+  metadata.translate_role: "llm_only_translation"`. The TUI hides it
+  (per §3.4) and the LLM sees it as the prompt content for that user
+  message. Users normally never observe this part in the chat UI.
 
 ### 10.2 Output display
 
@@ -1066,15 +1143,16 @@ plugin-owned activation banner appears before the main LLM response:
 
 ### 10.4 Failure surfaces
 
-- **Inbound failure (fresh message)**: the `chat.message` hook throws
-  the exact `INBOUND_TRANSLATION_FAILED` string from §6.4; the turn does
-  not proceed to the LLM; nothing from that turn is persisted (§3.2).
-  Sync callers see a failed request. Async callers currently surface the
-  same message through `Session.Event.Error` because the server catches
-  and republishes it.
-- **Inbound failure (stale cache on historical message)**: transform
-  throws the exact `STALE_CACHE` string from §6.4. Same caller-dependent
-  transport as above.
+- **Inbound failure (fresh message)**: the `chat.message` hook catches
+  the translator error, logs it, leaves the source-language text
+  untouched (no `ignored:true`, no LLM-only twin), and pushes a
+  synthetic UI-only `translate_role: "translation_failure"` notice.
+  The original source-language text reaches the LLM as a degraded
+  fallback. If the failure is on the activation turn AND every
+  eligible part failed, the plugin rolls back activation so the next
+  turn can retry cleanly. The internal error string is still
+  `[opencode-translate:INBOUND_TRANSLATION_FAILED] …` from §6.4 (used
+  for log matching).
 - **Outbound failure**: English is left visible (already streamed) and
   the plugin appends the inline failure trailer (§5.2) so the user
   sees `_Translation unavailable for this segment._` directly under
@@ -1097,12 +1175,10 @@ plugin-owned activation banner appears before the main LLM response:
 
 | Stage | Failure | Behaviour |
 | --- | --- | --- |
-| Inbound translation (`chat.message`) | Network / 5xx / 429 | 2 retries with backoff; final failure throws exact `INBOUND_TRANSLATION_FAILED`; turn aborted; nothing persisted. Transport is sync-request failure or async `Session.Event.Error` depending on caller path. |
-| Inbound translation (`chat.message`) | Placeholder post-check fails twice | Same as above. |
-| Inbound transform (`experimental.chat.messages.transform`) | Cache miss or hash mismatch on historical message | Throw exact `STALE_CACHE`; turn aborted. Transport is sync-request failure or async `Session.Event.Error` depending on caller path. |
+| Inbound translation (`chat.message`) | Network / 5xx / 429 | 2 retries with backoff; final failure is caught inside the hook (hooks must never throw, otherwise the OpenCode session fiber stalls). The plugin logs the error, leaves the source-language part as user-authored (no `ignored:true`, no LLM-only twin) so the LLM still sees the untranslated text, and emits a synthetic UI-only `translate_role: "translation_failure"` notice. If activation happened on this turn AND every eligible part failed, activation is rolled back so the next turn can retry cleanly. |
 | Outbound translation (`experimental.text.complete`) | Any failure | Leaves English visible; appends inline failure trailer with active nonce; no next-turn synthetic warning is needed because the user already sees it inline. |
-| Credential resolution (any hook) | No usable `apiKey` / `fetch` for translator provider | Throw exact `AUTH_UNAVAILABLE`; turn aborted at the enclosing hook's throw site. Transport follows the enclosing hook's rules. |
-| OAuth refresh (any hook) | Refresh endpoint returned non-2xx after retries, or response not parseable | Throw exact `OAUTH_REFRESH_FAILED`; turn aborted at the enclosing hook's throw site. Refreshed tokens from prior successful refreshes remain persisted via `client.auth.set`. |
+| Credential resolution (any hook) | No usable `apiKey` / `fetch` for translator provider | Translator wrapper throws exact `AUTH_UNAVAILABLE`; the enclosing hook catches and surfaces it through the hook-specific transport (inbound → translation-failure notice; outbound → failure trailer). |
+| OAuth refresh (any hook) | Refresh endpoint returned non-2xx after retries, or response not parseable | Translator wrapper throws exact `OAUTH_REFRESH_FAILED`; surfaced like `AUTH_UNAVAILABLE`. Refreshed tokens from prior successful refreshes remain persisted via `client.auth.set`. |
 
 ## 12. Telemetry & Logging
 
@@ -1255,20 +1331,31 @@ in the README and requires an `ANTHROPIC_API_KEY`.
     `translate_nonce` to metadata on a fake `{message, parts}` output
     and read it back through both the banner anchor and the
     per-user-part fallback.
-  - Multi-part ordering is exact: `[text,file,text]` on the activation
-    turn becomes `[text,preview,file,text,preview,banner]`.
+  - Multi-part ordering is exact. After v6 each translated source text
+    part is followed by **two** plugin-owned siblings — the UI preview
+    and the LLM-only English twin — in that order:
+    `[text, file, text]` on the activation turn becomes
+    `[source(ignored), preview, llm_twin, file, source(ignored),
+    preview, llm_twin, banner]`.
+  - `translate_part_index` is shared between the UI preview and the
+    LLM-only twin for a given source part.
+  - The source part has `ignored: true` after `chat.message` returns;
+    the LLM-only twin has `synthetic: true`.
 - **`translator.test.ts`**
-  - Hash cache hit skips `generateText`.
-  - Hash mismatch in transform hook throws the exact `STALE_CACHE`
-    message and
-    does NOT call `generateText`.
+  - The `experimental.chat.messages.transform` hook does **not**
+    rewrite the user-side `part.text` — the source-language text
+    stays as-is and the LLM-only synthetic twin (added in
+    `chat.message`) carries the English prompt content.
   - Synthetic user parts (`synthetic: true` or `ignored: true`) are
-    skipped; in particular the compaction auto-continue marker
-    (`metadata.compaction_continue === true`) is left untranslated.
+    skipped during inbound translation; in particular the compaction
+    auto-continue marker (`metadata.compaction_continue === true`) is
+    left untranslated.
   - Retry: 1 simulated transient failure then success.
-  - Final failure after retries in `chat.message` throws (simulating
-    hook-level abort) with the exact `INBOUND_TRANSLATION_FAILED`
-    prefix; no part is emitted by the failing code path.
+  - Final failure after retries in `chat.message` does NOT throw
+    (hooks must never throw, §6.4). The plugin instead logs the
+    `INBOUND_TRANSLATION_FAILED`-prefixed error, emits a synthetic
+    failure-notice part, and on activation-turn rolls back activation
+    so a later turn can retry.
 - **`protect.test.ts`**
   - Every placeholder kind (code blocks, paths, URLs, shell flags,
     env vars, JSON keys, stack frames, diff hunks, regex, HTML tags)
@@ -1422,6 +1509,49 @@ None of these block v1.
 Draft v2 of the spec contained several design issues that surfaced
 only after a second read of the opencode source. Keeping a changelog
 inline makes future re-reads faster.
+
+### v6 (current)
+
+- **Inbound architecture switched from "transform-time text swap" to
+  "ignored source + synthetic English twin".** v5 kept the user's
+  source-language text in `part.text`, cached the English in
+  `metadata.translate_en`, and rewrote `part.text` in
+  `experimental.chat.messages.transform` for each LLM serialisation.
+  v6 instead mutates the source part to `ignored: true` inside
+  `chat.message` (so the LLM serialiser skips it) and emits a
+  sibling `synthetic: true, ignored: false` part containing the pure
+  English translation. The synthetic twin is the only LLM-visible
+  representation of the user message; the `experimental.chat.messages.transform`
+  hook is now responsible only for assistant-side trailer stripping.
+  Motivation: separating the TUI-visible artifacts (source-language
+  text + `→ EN: ...` preview) from the LLM-visible artifact (synthetic
+  English twin) into distinct parts is more honest about the OpenCode
+  flag semantics observed in §3.4 and removes a class of bugs around
+  in-place text mutation.
+- **`STALE_CACHE` error removed.** With the user-side rewrite path
+  gone, there is no cache hash to mismatch in transform. v6 deletes
+  the `STALE_CACHE` thrown error from §6.4 and §11. Editing a
+  historical user message in a translation-enabled session now
+  silently uses the original LLM-only twin for that turn; the user
+  recovers by resending the message.
+- **Activation banner flag corrected.** v5 specified
+  `synthetic: true, ignored: true` for the activation banner. The
+  observed OpenCode TUI semantic is that `synthetic: true` *hides*
+  the part from the UI; combining both flags would render the banner
+  invisible everywhere. v6 documents the correct flag combination
+  (`synthetic: false, ignored: true`), matches a clarified §3.4
+  semantic table, and aligns the spec with the actual implementation.
+- **Hook-failure semantics aligned with the implementation.** The
+  observed implementation has always wrapped every hook body in a
+  `try/catch` because a thrown error inside a plugin hook stalls the
+  OpenCode session fiber. v5 still described inbound failure as a
+  thrown error from `chat.message`. v6 updates §10.4 and §11 to
+  describe the actual behavior: log + degrade to original text +
+  synthetic failure notice + roll back activation on the activation
+  turn. The exact thrown error templates from §6.4 still hold for log
+  matching, just on the inside of the hook's `try/catch`.
+
+### v5
 
 - **`chat.message` throw-vs-synthetic-part corrected.** v2 claimed the
   plugin pushes a synthetic "translation failed" error part and then

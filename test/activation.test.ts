@@ -252,8 +252,12 @@ describe("activation", () => {
     await hooks["chat.message"]!({ sessionID: "ses_1" }, output as never)
 
     expect(calls).toBe(1)
-    expect(output.parts).toHaveLength(1)
+    expect(output.parts).toHaveLength(2)
     expect((output.parts[0] as TextPartLike).text).toBe("새 메시지")
+    expect((output.parts[0] as TextPartLike).ignored).toBe(true)
+    expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
+    expect((output.parts[1] as TextPartLike).synthetic).toBe(true)
+    expect((output.parts[1] as TextPartLike).text).toBe("EN:새 메시지")
   })
 
   test("forked untranslated session remains inactive", async () => {
@@ -320,8 +324,12 @@ describe("activation", () => {
     expect(counted.calls).toEqual({ get: 2, messages: 2, message: 0 })
     expect(calls).toEqual(["inbound"])
     expect((output.parts[0] as TextPartLike).text).toBe("안녕")
+    expect((output.parts[0] as TextPartLike).ignored).toBe(true)
     expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:안녕")
-    expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
+    expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
+    expect((output.parts[1] as TextPartLike).synthetic).toBe(true)
+    expect((output.parts[1] as TextPartLike).text).toBe("EN:안녕")
+    expect((output.parts[2] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
   })
 
   test("inactive session cache skips later session lookups", async () => {
@@ -412,7 +420,12 @@ describe("activation", () => {
     await hooks["experimental.chat.messages.transform"]!({} as never, transformOutput as never)
 
     expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
-    expect((transformOutput.messages[0].parts[0] as TextPartLike).text).toBe("EN:안녕")
+    // transform no longer rewrites user parts. The source-language text
+    // stays as-is and `ignored:true` keeps it out of the LLM serialization;
+    // the LLM-only synthetic twin (created in chat.message) carries the
+    // English prompt instead.
+    expect((transformOutput.messages[0].parts[0] as TextPartLike).text).toBe("안녕")
+    expect((transformOutput.messages[0].parts[0] as TextPartLike).ignored).toBe(true)
 
     const completeOutput = { text: "hello" }
     await hooks["experimental.text.complete"]!(
@@ -446,12 +459,27 @@ describe("activation", () => {
 
     await hooks["chat.message"]!({ sessionID: "ses_1" }, output as never)
 
-    expect(output.parts).toHaveLength(4)
+    // Per user-authored text part we now emit two slots:
+    //   - the original source-language text (now `ignored:true`)
+    //   - a synthetic LLM-only English twin
+    // The file part stays in place, and the activation banner still
+    // closes the message.
+    expect(output.parts).toHaveLength(6)
     expect((output.parts[0] as TextPartLike).text).toBe("첫번째")
-    expect((output.parts[1] as TextPartLike).type).toBe("file")
-    expect((output.parts[2] as TextPartLike).text).toBe("두번째")
-    expect((output.parts[3] as TextPartLike).text).toContain("✓ Translation enabled")
-    expect((output.parts[3] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
+    expect((output.parts[0] as TextPartLike).ignored).toBe(true)
+    expect((output.parts[1] as TextPartLike).text).toBe("EN:첫번째")
+    expect((output.parts[1] as TextPartLike).synthetic).toBe(true)
+    expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
+    expect((output.parts[2] as TextPartLike).type).toBe("file")
+    expect((output.parts[3] as TextPartLike).text).toBe("두번째")
+    expect((output.parts[3] as TextPartLike).ignored).toBe(true)
+    expect((output.parts[4] as TextPartLike).text).toBe("EN:두번째")
+    expect((output.parts[4] as TextPartLike).synthetic).toBe(true)
+    expect((output.parts[4] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
+    expect((output.parts[5] as TextPartLike).text).toContain("✓ Translation enabled")
+    expect((output.parts[1] as TextPartLike).metadata?.translate_part_index).toBe(0)
+    expect((output.parts[4] as TextPartLike).metadata?.translate_part_index).toBe(1)
+    expect((output.parts[5] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
   })
 
   test("OPENCODE_TRANSLATE_DISABLE=1 returns an empty hook map", () => {
