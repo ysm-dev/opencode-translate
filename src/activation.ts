@@ -352,6 +352,7 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
 
         for (const part of output.parts as TextPartLike[]) {
           nextParts.push(part)
+          if (!activeState) continue
           if (!isUserAuthoredTextPart(part)) continue
 
           const currentEligibleIndex = eligibleIndex
