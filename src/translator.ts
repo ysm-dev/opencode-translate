@@ -30,8 +30,10 @@ interface TranslateTextInput {
 }
 
 // Hard timeout for a single generateText call. Without this, a stalled
-// provider request can block the chat.message hook indefinitely.
-const DEFAULT_TRANSLATE_TIMEOUT_MS = 60_000
+// provider request can block the chat.message hook indefinitely. Long
+// assistant responses can require well over a minute to translate, so
+// the budget here is generous; retries will still bound the worst case.
+const DEFAULT_TRANSLATE_TIMEOUT_MS = 180_000
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {

@@ -932,7 +932,7 @@ Flow:
      `description` to `displayLanguage` **in parallel** via the same
      translator instance used for chat text. Each string goes through
      the normal `src/translator.ts` path (placeholder protection,
-     retry/backoff, 60s timeout).
+      retry/backoff, 180s timeout).
    - Stores `{ original, translated }` keyed by `input.callID`.
 3. The tool then executes with the mutated args. When it publishes the
    `question.asked` bus event, the TUI renders the translated dialog
@@ -1007,7 +1007,7 @@ retry on quality.
 The translator preserves only the operational guarantees that don't
 depend on translation rules:
 
-- 60s hard timeout per `generateText` call (`src/translator.ts`).
+- 180s hard timeout per `generateText` call (`src/translator.ts`).
 - Network/5xx retry with exponential backoff (3 attempts).
 - 429 honored via `retry-after` once.
 - AUTH/OAUTH errors propagate to the activation hook for surfacing.
