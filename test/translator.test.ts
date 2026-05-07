@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import { __resetActivationCacheForTest, createHooks } from "../src/activation"
 import type { MessageWithPartsLike, PluginClientLike, TextPartLike } from "../src/constants"
-import { __resetTranslatorCachesForTest, createTranslator, hashText } from "../src/translator"
+import {
+  __resetSyntheticPartIDForTest,
+  __resetTranslatorCachesForTest,
+  createSyntheticPartID,
+  createTranslator,
+  hashText,
+} from "../src/translator"
 
 function textPart(id: string, text: string, extra: Partial<TextPartLike> = {}): TextPartLike {
   return {
@@ -45,10 +51,57 @@ function fakeClient(messages: MessageWithPartsLike[]): PluginClientLike {
   }
 }
 
+function encodeAscendingPartIDForTest(timestamp: number, counter: number): string {
+  const encoded = BigInt(timestamp) * BigInt(0x1000) + BigInt(counter)
+  const bytes = Buffer.alloc(6)
+  for (let index = 0; index < 6; index += 1) {
+    bytes[index] = Number((encoded >> BigInt(40 - 8 * index)) & BigInt(0xff))
+  }
+  return `prt_${bytes.toString("hex")}00000000000000`
+}
+
 describe("translator", () => {
   beforeEach(() => {
     __resetActivationCacheForTest()
     __resetTranslatorCachesForTest()
+  })
+
+  test("synthetic part ids use opencode's ascending part-id shape", () => {
+    const id = createSyntheticPartID()
+    const body = id.slice("prt_".length)
+
+    expect(id.startsWith("prt_")).toBe(true)
+    expect(body).toHaveLength(26)
+    expect(body.slice(0, 12)).toMatch(/^[0-9a-f]{12}$/)
+    expect(body.slice(12)).toMatch(/^[0-9A-Za-z]{14}$/)
+  })
+
+  test("synthetic part ids are lexicographically ascending within one millisecond", () => {
+    const realDateNow = Date.now
+    Date.now = () => 1_700_000_000_000
+    try {
+      __resetSyntheticPartIDForTest()
+      const ids = Array.from({ length: 32 }, () => createSyntheticPartID())
+
+      expect(ids).toEqual([...ids].sort())
+    } finally {
+      Date.now = realDateNow
+    }
+  })
+
+  test("synthetic part ids sort after prior timestamp-based user part ids", () => {
+    const realDateNow = Date.now
+    const userTimestamp = 1_700_000_000_000
+    const userPartID = encodeAscendingPartIDForTest(userTimestamp, 1)
+    Date.now = () => userTimestamp + 1
+    try {
+      __resetSyntheticPartIDForTest()
+      const syntheticPartID = createSyntheticPartID()
+
+      expect(syntheticPartID > userPartID).toBe(true)
+    } finally {
+      Date.now = realDateNow
+    }
   })
 
   test("retry succeeds after one transient failure", async () => {
