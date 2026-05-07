@@ -1,6 +1,6 @@
 # `opencode-translate` — Specification
 
-> Status: Draft v6 · Owner: [@ysm-dev](https://github.com/ysm-dev)
+> Status: Draft v7 · Owner: [@ysm-dev](https://github.com/ysm-dev)
 > Target platform: [OpenCode](https://github.com/anomalyco/opencode) plugin
 > Plugin API: `@opencode-ai/plugin` ( https://opencode.ai/docs/plugins/ )
 
@@ -1510,7 +1510,38 @@ Draft v2 of the spec contained several design issues that surfaced
 only after a second read of the opencode source. Keeping a changelog
 inline makes future re-reads faster.
 
-### v6 (current)
+### v7 (current)
+
+- **`→ EN: ...` preview moved from a sibling synthetic part to inline
+  text on the source-language part.** v6 emitted the preview as a
+  separate `synthetic: false, ignored: true` part adjacent to the
+  user's original. OpenCode's UI (`packages/ui/src/components/
+  message-part.tsx`'s `UserMessageDisplay`) was changed to render a
+  **single** non-synthetic text part per user message via `find`, so
+  every part beyond the first stopped reaching the screen. The result
+  was: users saw their original message but the `→ EN: ...` preview
+  silently disappeared. v7 appends the preview directly to the source
+  part's `text` (`{original}\n\n_→ EN: {translated}_`) and keeps
+  `ignored: true` — the UI now renders the combined text in a single
+  part, the LLM serialiser still skips it, and the LLM-only English
+  twin (`synthetic: true, ignored: false`) carries the clean prompt
+  the model sees. The `translation_preview` role is no longer emitted.
+- **Translation-failure notice switched to the same inline pattern.**
+  The same UI constraint hid the standalone failure notice. v7 now
+  appends `_⚠️ Translation failed: …_` to the source part's text and
+  marks it `ignored: true`; the LLM receives the clean original text
+  via a new `translate_role: "llm_only_fallback"` twin, so the warning
+  copy never leaks into model context. v6's behaviour (leaving the
+  source part untouched on failure so the LLM saw the raw original)
+  was a silent failure mode for users — they got a model response but
+  no indication that translation had skipped.
+- **Translator per-call timeout 60s → 180s.** Long assistant outbound
+  translations frequently exceeded the previous 60-second budget,
+  causing the `Translation unavailable for this segment.` fallback to
+  appear too readily. The trade-off (worst-case stall is longer) is
+  documented in §7.3.
+
+### v6
 
 - **Inbound architecture switched from "transform-time text swap" to
   "ignored source + synthetic English twin".** v5 kept the user's

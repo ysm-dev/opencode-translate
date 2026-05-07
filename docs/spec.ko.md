@@ -1,6 +1,6 @@
 # `opencode-translate` — 명세
 
-> 상태: Draft v6 · 담당자: [@ysm-dev](https://github.com/ysm-dev)
+> 상태: Draft v7 · 담당자: [@ysm-dev](https://github.com/ysm-dev)
 > 대상 플랫폼: [OpenCode](https://github.com/anomalyco/opencode) 플러그인
 > 플러그인 API: `@opencode-ai/plugin` ( https://opencode.ai/docs/plugins/ )
 
@@ -1368,7 +1368,33 @@ opencode    # 새 세션의 첫 메시지를 "$en"으로 시작
 명세의 Draft v2에는 opencode 소스를 두 번째로 읽었을 때에야 드러난 몇 가지
 디자인 이슈가 있었다. 인라인 변경 로그를 유지하면 향후 재검토가 더 빨라진다.
 
-### v6 (현재)
+### v7 (현재)
+
+- **`→ EN: ...` 미리보기를 별도 합성 파트에서 원본 파트의 인라인 본문으로
+  이동.** v6는 `synthetic: false, ignored: true`인 별도 미리보기 파트를
+  사용자 메시지에 형제로 push했다. OpenCode UI(`packages/ui/src/components/
+  message-part.tsx`의 `UserMessageDisplay`)가 user 메시지에서 `find`로
+  **non-synthetic 텍스트 파트를 단 하나만** 골라 렌더하도록 변경되면서, 두
+  번째 이후의 텍스트 파트는 화면에 도달하지 못하게 됐다. 결과적으로 사용자에게
+  원본만 보이고 `→ EN: ...` 미리보기는 사라졌다. v7은 미리보기를 원본 파트의
+  `text`에 인라인으로 추가(`{원본}\n\n_→ EN: {translated}_`)하고 `ignored:
+  true`를 유지한다 — UI는 결합된 한 파트를 그대로 렌더하고, LLM 직렬화기는
+  여전히 그 파트를 건너뛰며, LLM-only 영문 트윈(`synthetic: true,
+  ignored: false`)이 모델이 보는 깨끗한 프롬프트를 운반한다. `translation_
+  preview` role은 더 이상 emit되지 않는다.
+- **번역 실패 알림도 동일한 인라인 패턴으로 전환.** 같은 UI 제약 때문에 별도
+  합성 실패 알림 파트도 보이지 않았다. v7은 실패 시 원본 파트 텍스트에
+  `_⚠️ Translation failed: …_`를 인라인으로 붙이고 `ignored: true`로 마크한다.
+  LLM은 새 `translate_role: "llm_only_fallback"` 트윈으로 깨끗한 원본
+  텍스트만 본다(경고 문구는 LLM에 노출되지 않음). 이전 v6는 실패 시 원본
+  파트를 그대로 두어 LLM이 원문을 그대로 받았으나 사용자에게 경고가 보이지
+  않는 사일런트 실패였다.
+- **번역기 단일 호출 타임아웃 60초 → 180초.** 긴 어시스턴트 응답의 outbound
+  번역이 60초 안에 끝나지 않아 자주 `Translation unavailable for this
+  segment.` fallback으로 떨어지는 사례가 잦았다. 재시도 정책상 워스트 케이스가
+  더 길어지는 트레이드오프는 §7.3에 명시.
+
+### v6
 
 - **인바운드 아키텍처를 "transform 시점 텍스트 swap"에서
   "ignored 원본 + 합성 영어 트윈"으로 전환.** v5는 사용자의 원본 언어

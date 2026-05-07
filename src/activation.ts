@@ -355,25 +355,26 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
             })
 
             const sourceHash = hashText(part.text)
+            // Compute metadata against the ORIGINAL `part.text` so the
+            // stored `translate_source_hash` keeps a stable round-trip
+            // identity even after we splice the preview into the part
+            // text below.
             part.metadata = {
               ...(part.metadata ?? {}),
               ...mergeTranslatedMetadata(activeState, part, english),
             }
-            // Hide the user's source-language text from the LLM. The TUI
-            // still renders it because `ignored:true` only affects the
-            // user-side LLM serializer (`message-v2.ts:773`).
+            // Inline the `→ EN: ...` preview into the source-language
+            // part. OpenCode's `UserMessageDisplay`
+            // (packages/ui/src/components/message-part.tsx) renders only
+            // ONE text part per user message — the first non-synthetic —
+            // so a sibling `synthetic:false + ignored:true` preview part
+            // would never reach the screen. Combining them here keeps
+            // the original visible alongside the English twin while
+            // `ignored:true` still hides the whole thing from the LLM
+            // serializer (`message-v2.ts:773`); the LLM-only synthetic
+            // twin below carries the clean English prompt.
+            part.text = `${part.text}\n\n_→ EN: ${english}_`
             part.ignored = true
-
-            // UI-only preview so the user can verify the translation that
-            // was sent to the LLM.
-            nextParts.push(
-              createSyntheticTextPart(part.sessionID, part.messageID, `→ EN: ${english}`, {
-                translate_role: "translation_preview",
-                translate_nonce: activeState.translate_nonce,
-                translate_source_hash: sourceHash,
-                translate_part_index: currentEligibleIndex,
-              }),
-            )
 
             // LLM-only English twin. This is the actual prompt the model
             // sees in place of the now-`ignored` source-language part.
@@ -386,22 +387,27 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
               }),
             )
           } catch (error) {
-            // Fall back to sending the original text to the LLM so the user
-            // still gets a response. Surface the error as a synthetic part.
+            // Translation failed. Append a visible warning to the
+            // source-language part (same UI constraint as the success
+            // path: only one text part per user message renders) and
+            // route the original, untranslated text to the LLM via a
+            // dedicated fallback twin so the model still gets a clean
+            // prompt without the warning text leaking into context.
             translationErrors.push({ part, error })
-            const wrapped = buildInboundTranslationError(activeState.translate_source_lang, normalizeReason(error))
+            const reason = normalizeReason(error)
+            const wrapped = buildInboundTranslationError(activeState.translate_source_lang, reason)
             await logError(client, wrapped)
+
+            const originalText = part.text
+            part.text = `${originalText}\n\n_⚠️ Translation failed: ${reason}. Original text was sent to the model._`
+            part.ignored = true
+
             nextParts.push(
-              createSyntheticTextPart(
-                part.sessionID,
-                part.messageID,
-                `⚠️ Translation failed: ${normalizeReason(error)}. Original text will be sent to the model.`,
-                {
-                  translate_role: "translation_failure",
-                  translate_nonce: activeState.translate_nonce,
-                  translate_part_index: currentEligibleIndex,
-                },
-              ),
+              createLlmOnlyTextPart(part.sessionID, part.messageID, originalText, {
+                translate_role: "llm_only_fallback",
+                translate_nonce: activeState.translate_nonce,
+                translate_part_index: currentEligibleIndex,
+              }),
             )
           }
         }
