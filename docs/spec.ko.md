@@ -1389,6 +1389,14 @@ opencode    # 새 세션의 첫 메시지를 "$en"으로 시작
   텍스트만 본다(경고 문구는 LLM에 노출되지 않음). 이전 v6는 실패 시 원본
   파트를 그대로 두어 LLM이 원문을 그대로 받았으나 사용자에게 경고가 보이지
   않는 사일런트 실패였다.
+- **활성화 배너도 첫 사용자 텍스트 파트에 인라인.** 같은 단일-파트 렌더 제약
+  때문에 별도 `synthetic: false, ignored: true` 배너 파트는 표시되지 않았다.
+  v7은 활성화 턴에 `_✓ Translation mode enabled · ..._`를 첫 user 텍스트
+  파트(이미 `→ EN: ...` 미리보기가 인라인된 파트)의 본문에 추가한다. 동시에,
+  `extractStoredState`의 `translate_role === "activation_banner"` 정본
+  마커를 보존하기 위해 메타데이터 전용 합성 파트를 `synthetic: true,
+  ignored: true`(§3.4의 "양쪽에서 숨김" 조합)로 emit한다 — 이 파트는 UI에도
+  LLM에도 노출되지 않고 순수 DB 행으로만 존재해 세션 상태를 운반한다.
 - **번역기 단일 호출 타임아웃 60초 → 180초.** 긴 어시스턴트 응답의 outbound
   번역이 60초 안에 끝나지 않아 자주 `Translation unavailable for this
   segment.` fallback으로 떨어지는 사례가 잦았다. 재시도 정책상 워스트 케이스가

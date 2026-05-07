@@ -1535,6 +1535,16 @@ inline makes future re-reads faster.
   source part untouched on failure so the LLM saw the raw original)
   was a silent failure mode for users — they got a model response but
   no indication that translation had skipped.
+- **Activation banner also inlined onto the first user text part.**
+  The same single-part rendering constraint hid the standalone banner.
+  v7 appends `_✓ Translation mode enabled · ..._` to the first user
+  text part on the activation turn (the same part that already carries
+  the inline `→ EN: ...` preview). A metadata-only synthetic banner
+  part is still emitted with `synthetic: true, ignored: true` (§3.4's
+  "hidden from both" combination) so `extractStoredState`'s canonical
+  `translate_role === "activation_banner"` marker is preserved across
+  reloads. That marker part is invisible to the TUI and the LLM
+  serialiser; it exists purely as a database row carrying state.
 - **Translator per-call timeout 60s → 180s.** Long assistant outbound
   translations frequently exceeded the previous 60-second budget,
   causing the `Translation unavailable for this segment.` fallback to

@@ -137,26 +137,14 @@ function mergeTranslatedMetadata(state: TranslateState, part: TextPartLike, engl
 // OpenCode's flag semantics, observed from packages/opencode and packages/ui:
 //   synthetic: true  -> hidden from the user UI, still sent to the LLM
 //   ignored: true    -> hidden from the LLM, still shown in the user UI
-// The translation preview, activation banner, and failure notices are
-// user-facing status/diagnostic parts that must not leak into the LLM
-// prompt, so they use synthetic:false + ignored:true.
-function createSyntheticTextPart(
-  sessionID: string,
-  messageID: string,
-  text: string,
-  metadata: Record<string, unknown>,
-): TextPartLike {
-  return {
-    id: createSyntheticPartID(),
-    sessionID,
-    messageID,
-    type: "text",
-    text,
-    synthetic: false,
-    ignored: true,
-    metadata,
-  }
-}
+//   both true        -> hidden from both (used for metadata-only marker
+//                       parts like the activation banner that exist purely
+//                       to carry state across reloads)
+// The plugin's user-facing status text (translation preview, activation
+// banner, failure notice) lives inline on the source-language user part
+// itself rather than as sibling parts, because OpenCode's
+// `UserMessageDisplay` renders only the first non-synthetic text part
+// per user message.
 
 // LLM-only text part: hidden from the TUI but the only LLM-visible
 // representation of the user's source-language text. The original
@@ -337,10 +325,20 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
         const nextParts: TextPartLike[] = []
         let eligibleIndex = 0
         const translationErrors: { part: TextPartLike; error: unknown }[] = []
+        // Track the first user-authored text part so the activation
+        // banner can be inlined onto it. OpenCode's `UserMessageDisplay`
+        // renders only the first non-synthetic text part per user
+        // message, so any standalone banner part is never visible in
+        // the TUI.
+        let firstUserTextPart: (TextPartLike & { text: string }) | undefined
 
         for (const part of output.parts as TextPartLike[]) {
           nextParts.push(part)
           if (!isUserAuthoredTextPart(part)) continue
+
+          if (firstUserTextPart === undefined) {
+            firstUserTextPart = part
+          }
 
           const currentEligibleIndex = eligibleIndex
           eligibleIndex += 1
@@ -421,13 +419,36 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
         }
 
         if (activatedThisTurn) {
-          nextParts.push(
-            createSyntheticTextPart(input.sessionID, output.message.id, createActivationBannerText(options), {
+          const bannerText = createActivationBannerText(options)
+          // Inline the activation banner into the first user-authored
+          // text part so it actually reaches the TUI (see comment above
+          // for the single-text-part rendering constraint). The banner
+          // sits underneath the inline `→ EN: ...` preview that was
+          // appended during translation, giving the user a one-time
+          // confirmation that translation mode just turned on.
+          if (firstUserTextPart !== undefined) {
+            firstUserTextPart.text = `${firstUserTextPart.text}\n\n_${bannerText}_`
+          }
+          // Also emit the banner as a metadata-only synthetic part so
+          // `extractStoredState`'s canonical `translate_role ===
+          // "activation_banner"` marker is preserved across reloads.
+          // `synthetic:true + ignored:true` keeps it hidden from both
+          // the TUI and the LLM serializer; it exists purely as a
+          // database row carrying state metadata.
+          nextParts.push({
+            id: createSyntheticPartID(),
+            sessionID: input.sessionID,
+            messageID: output.message.id,
+            type: "text",
+            text: bannerText,
+            synthetic: true,
+            ignored: true,
+            metadata: {
               ...activeState,
               translate_role: "activation_banner",
               translate_spec_version: SPEC_VERSION,
-            }),
-          )
+            },
+          })
         }
 
         output.parts.splice(0, output.parts.length, ...(nextParts as typeof output.parts))

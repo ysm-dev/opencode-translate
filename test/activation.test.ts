@@ -324,13 +324,16 @@ describe("activation", () => {
 
     expect(counted.calls).toEqual({ get: 2, messages: 2, message: 0 })
     expect(calls).toEqual(["inbound"])
-    expect((output.parts[0] as TextPartLike).text).toBe("안녕\n\n_→ EN: EN:안녕_")
+    expect((output.parts[0] as TextPartLike).text).toContain("안녕\n\n_→ EN: EN:안녕_")
+    expect((output.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
     expect((output.parts[0] as TextPartLike).ignored).toBe(true)
     expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:안녕")
     expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
     expect((output.parts[1] as TextPartLike).synthetic).toBe(true)
     expect((output.parts[1] as TextPartLike).text).toBe("EN:안녕")
     expect((output.parts[2] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
+    expect((output.parts[2] as TextPartLike).synthetic).toBe(true)
+    expect((output.parts[2] as TextPartLike).ignored).toBe(true)
   })
 
   test("inactive session cache skips later session lookups", async () => {
@@ -422,11 +425,13 @@ describe("activation", () => {
 
     expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
     // transform no longer rewrites user parts. The source-language text
-    // (now augmented with an inline `→ EN: ...` preview) stays as-is and
+    // (now augmented with an inline `→ EN: ...` preview, plus the
+    // activation banner on the activation turn) stays as-is and
     // `ignored:true` keeps it out of the LLM serialization; the LLM-only
     // synthetic twin (created in chat.message) carries the English
     // prompt instead.
-    expect((transformOutput.messages[0].parts[0] as TextPartLike).text).toBe("안녕\n\n_→ EN: EN:안녕_")
+    expect((transformOutput.messages[0].parts[0] as TextPartLike).text).toContain("안녕\n\n_→ EN: EN:안녕_")
+    expect((transformOutput.messages[0].parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
     expect((transformOutput.messages[0].parts[0] as TextPartLike).ignored).toBe(true)
 
     const completeOutput = { text: "hello" }
@@ -465,10 +470,13 @@ describe("activation", () => {
     //   - the original source-language text, augmented in place with the
     //     inline `→ EN: ...` preview and marked `ignored:true`
     //   - a synthetic LLM-only English twin
-    // The file part stays in place, and the activation banner still
-    // closes the message.
+    // The file part stays in place. The activation banner is inlined
+    // onto the FIRST user-authored text part (so it actually shows up
+    // in the TUI) and a metadata-only synthetic banner part is appended
+    // at the end purely to carry session state for `extractStoredState`.
     expect(output.parts).toHaveLength(6)
-    expect((output.parts[0] as TextPartLike).text).toBe("첫번째\n\n_→ EN: EN:첫번째_")
+    expect((output.parts[0] as TextPartLike).text).toContain("첫번째\n\n_→ EN: EN:첫번째_")
+    expect((output.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
     expect((output.parts[0] as TextPartLike).ignored).toBe(true)
     expect((output.parts[1] as TextPartLike).text).toBe("EN:첫번째")
     expect((output.parts[1] as TextPartLike).synthetic).toBe(true)
@@ -476,10 +484,13 @@ describe("activation", () => {
     expect((output.parts[2] as TextPartLike).type).toBe("file")
     expect((output.parts[3] as TextPartLike).text).toBe("두번째\n\n_→ EN: EN:두번째_")
     expect((output.parts[3] as TextPartLike).ignored).toBe(true)
+    expect((output.parts[3] as TextPartLike).text).not.toContain("✓ Translation mode enabled")
     expect((output.parts[4] as TextPartLike).text).toBe("EN:두번째")
     expect((output.parts[4] as TextPartLike).synthetic).toBe(true)
     expect((output.parts[4] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
     expect((output.parts[5] as TextPartLike).text).toContain("✓ Translation mode enabled")
+    expect((output.parts[5] as TextPartLike).synthetic).toBe(true)
+    expect((output.parts[5] as TextPartLike).ignored).toBe(true)
     expect((output.parts[1] as TextPartLike).metadata?.translate_part_index).toBe(0)
     expect((output.parts[4] as TextPartLike).metadata?.translate_part_index).toBe(1)
     expect((output.parts[5] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
