@@ -253,8 +253,13 @@ describe("activation", () => {
 
     expect(calls).toBe(1)
     expect(output.parts).toHaveLength(2)
+    const forkVisibleParts = (output.parts as TextPartLike[]).filter(
+      (part) => part.type === "text" && part.synthetic !== true && part.ignored !== true,
+    )
+    expect(forkVisibleParts.map((part) => part.id)).toEqual(["p1"])
     expect((output.parts[0] as TextPartLike).text).toBe("새 메시지\n\n_→ EN: EN:새 메시지_")
-    expect((output.parts[0] as TextPartLike).ignored).toBe(true)
+    expect((output.parts[0] as TextPartLike).synthetic).not.toBe(true)
+    expect((output.parts[0] as TextPartLike).ignored).not.toBe(true)
     expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:새 메시지")
     expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
     expect((output.parts[1] as TextPartLike).synthetic).toBe(true)
@@ -326,7 +331,7 @@ describe("activation", () => {
     expect(calls).toEqual(["inbound"])
     expect((output.parts[0] as TextPartLike).text).toContain("안녕\n\n_→ EN: EN:안녕_")
     expect((output.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
-    expect((output.parts[0] as TextPartLike).ignored).toBe(true)
+    expect((output.parts[0] as TextPartLike).ignored).not.toBe(true)
     expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:안녕")
     expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
     expect((output.parts[1] as TextPartLike).synthetic).toBe(true)
@@ -419,20 +424,20 @@ describe("activation", () => {
     expect(calls).toEqual(["inbound"])
 
     const transformOutput = {
-      messages: [storedMessage([{ ...(output.parts[0] as TextPartLike) }])],
+      messages: [storedMessage((output.parts as TextPartLike[]).map((part) => ({ ...part })))],
     }
     await hooks["experimental.chat.messages.transform"]!({} as never, transformOutput as never)
 
     expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
-    // transform no longer rewrites user parts. The source-language text
-    // (now augmented with an inline `→ EN: ...` preview, plus the
-    // activation banner on the activation turn) stays as-is and
-    // `ignored:true` keeps it out of the LLM serialization; the LLM-only
-    // synthetic twin (created in chat.message) carries the English
-    // prompt instead.
+    // The stored source-language display part stays fork-visible, but the
+    // transform marks it ignored in the model-bound copy so the LLM-only
+    // synthetic twin carries the English prompt instead.
     expect((transformOutput.messages[0].parts[0] as TextPartLike).text).toContain("안녕\n\n_→ EN: EN:안녕_")
     expect((transformOutput.messages[0].parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
     expect((transformOutput.messages[0].parts[0] as TextPartLike).ignored).toBe(true)
+    expect((transformOutput.messages[0].parts[1] as TextPartLike).text).toBe("EN:안녕")
+    expect((transformOutput.messages[0].parts[1] as TextPartLike).synthetic).toBe(true)
+    expect((transformOutput.messages[0].parts[1] as TextPartLike).ignored).not.toBe(true)
 
     const completeOutput = { text: "hello" }
     await hooks["experimental.text.complete"]!(
@@ -466,9 +471,9 @@ describe("activation", () => {
 
     await hooks["chat.message"]!({ sessionID: "ses_1" }, output as never)
 
-    // Per user-authored text part we now emit two slots:
+    // Per user-authored text part we emit two slots:
     //   - the original source-language text, augmented in place with the
-    //     inline `→ EN: ...` preview and marked `ignored:true`
+    //     inline `→ EN: ...` preview and kept fork-visible
     //   - a synthetic LLM-only English twin
     // The file part stays in place. The activation banner is inlined
     // onto the FIRST user-authored text part (so it actually shows up
@@ -477,13 +482,13 @@ describe("activation", () => {
     expect(output.parts).toHaveLength(6)
     expect((output.parts[0] as TextPartLike).text).toContain("첫번째\n\n_→ EN: EN:첫번째_")
     expect((output.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
-    expect((output.parts[0] as TextPartLike).ignored).toBe(true)
+    expect((output.parts[0] as TextPartLike).ignored).not.toBe(true)
     expect((output.parts[1] as TextPartLike).text).toBe("EN:첫번째")
     expect((output.parts[1] as TextPartLike).synthetic).toBe(true)
     expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
     expect((output.parts[2] as TextPartLike).type).toBe("file")
     expect((output.parts[3] as TextPartLike).text).toBe("두번째\n\n_→ EN: EN:두번째_")
-    expect((output.parts[3] as TextPartLike).ignored).toBe(true)
+    expect((output.parts[3] as TextPartLike).ignored).not.toBe(true)
     expect((output.parts[3] as TextPartLike).text).not.toContain("✓ Translation mode enabled")
     expect((output.parts[4] as TextPartLike).text).toBe("EN:두번째")
     expect((output.parts[4] as TextPartLike).synthetic).toBe(true)

@@ -134,12 +134,17 @@ function mergeTranslatedMetadata(state: TranslateState, part: TextPartLike, engl
   }
 }
 
-// OpenCode's flag semantics, observed from packages/opencode and packages/ui:
+// OpenCode's flag semantics are not uniform across every UI path:
 //   synthetic: true  -> hidden from the user UI, still sent to the LLM
-//   ignored: true    -> hidden from the LLM, still shown in the user UI
+//   ignored: true    -> hidden from the LLM, still shown in the main message UI
 //   both true        -> hidden from both (used for metadata-only marker
 //                       parts like the activation banner that exist purely
 //                       to carry state across reloads)
+// Some secondary UIs, including the web `/fork` dialog, only consider text
+// parts that are neither synthetic nor ignored. Persist translated user display
+// parts as non-ignored so those flows can find them; before model serialization,
+// `experimental.chat.messages.transform` marks those display parts ignored and
+// lets the synthetic English twins carry the actual prompt text.
 // The plugin's user-facing status text (translation preview, activation
 // banner, failure notice) lives inline on the source-language user part
 // itself rather than as sibling parts, because OpenCode's
@@ -148,8 +153,9 @@ function mergeTranslatedMetadata(state: TranslateState, part: TextPartLike, engl
 
 // LLM-only text part: hidden from the TUI but the only LLM-visible
 // representation of the user's source-language text. The original
-// user-authored part is marked `ignored:true` so the LLM never sees it,
-// and this synthetic English twin carries the actual prompt content.
+// user-authored part is marked `ignored:true` in the model-bound transform so
+// the LLM never sees it, and this synthetic English twin carries the actual
+// prompt content.
 function createLlmOnlyTextPart(
   sessionID: string,
   messageID: string,
@@ -166,6 +172,11 @@ function createLlmOnlyTextPart(
     ignored: false,
     metadata,
   }
+}
+
+function isTranslatedUserDisplayPart(part: TextPartLike): boolean {
+  if (!isTextPart(part) || part.synthetic === true) return false
+  return extractStateFromMetadata(asMetadata(part)) !== undefined
 }
 
 function escapeRegex(value: string): string {
@@ -367,15 +378,14 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
             // ONE text part per user message — the first non-synthetic —
             // so a sibling `synthetic:false + ignored:true` preview part
             // would never reach the screen. Combining them here keeps
-            // the original visible alongside the English twin while
-            // `ignored:true` still hides the whole thing from the LLM
-            // serializer (`message-v2.ts:773`); the LLM-only synthetic
-            // twin below carries the clean English prompt.
+            // the original visible alongside the English twin while still
+            // satisfying secondary UI filters like `/fork`, which require
+            // non-synthetic, non-ignored text. The transform hook marks this
+            // display part ignored in the model-bound copy.
             part.text = `${part.text}\n\n_→ EN: ${english}_`
-            part.ignored = true
 
             // LLM-only English twin. This is the actual prompt the model
-            // sees in place of the now-`ignored` source-language part.
+            // sees in place of the source-language display part.
             nextParts.push(
               createLlmOnlyTextPart(part.sessionID, part.messageID, english, {
                 translate_role: "llm_only_translation",
@@ -465,12 +475,15 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
         const activeState = resolved.state
         if (!activeState) return
 
-        // User parts need no in-place rewriting: the source-language text
-        // part is `ignored:true` so the LLM serializer skips it, and a
-        // synthetic English twin (created in `chat.message`) carries the
-        // actual prompt content. Only assistant parts still need their
-        // localized trailer stripped before re-entering the model.
         for (const message of output.messages as MessageWithPartsLike[]) {
+          if (message.info.role === "user") {
+            for (const part of message.parts) {
+              if (!isTranslatedUserDisplayPart(part)) continue
+              part.ignored = true
+            }
+            continue
+          }
+
           if (message.info.role !== "assistant") continue
           for (const part of message.parts) {
             if (!isTextPart(part)) continue
