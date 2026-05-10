@@ -127,7 +127,7 @@ If you prefer a plain API key, set `ANTHROPIC_API_KEY` in the environment or pas
 
 If `translatorModel` uses OpenAI and OpenCode auth is backed by the ChatGPT/Codex OAuth flow, the plugin reuses those OAuth credentials for translation requests.
 
-For OAuth-backed OpenAI requests, the plugin routes the OpenAI AI SDK request to `https://chatgpt.com/backend-api/codex/responses` and normalizes the request body to Codex's expected typed `input` shape. This supports models such as `openai/gpt-5.5` when your ChatGPT plan has access.
+For OAuth-backed OpenAI requests, the plugin routes the OpenAI AI SDK request to `https://chatgpt.com/backend-api/codex/responses`, adds the required Codex beta/originator headers, normalizes the request body to Codex's expected typed `input` shape, and converts Codex SSE responses back to JSON for translation calls. This supports models such as `openai/gpt-5.5` when your ChatGPT plan has access.
 
 If you prefer a plain API key, set `OPENAI_API_KEY` in the environment or pass `apiKey` in plugin options. The plugin prefers explicit `apiKey`, then `OPENAI_API_KEY`, then OAuth.
 

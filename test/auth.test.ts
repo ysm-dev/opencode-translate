@@ -421,6 +421,9 @@ describe("auth", () => {
     expect(finalUrl).toBe("https://chatgpt.com/backend-api/codex/responses")
     expect(finalHeaders.get("Authorization")).toBe("Bearer access-token")
     expect(finalHeaders.get("ChatGPT-Account-Id")).toBe("acct_1")
+    expect(finalHeaders.get("OpenAI-Beta")).toBe("responses=experimental")
+    expect(finalHeaders.get("originator")).toBe("codex_cli_rs")
+    expect(finalHeaders.get("accept")).toBe("text/event-stream")
     expect(parsed.instructions).toBe("translator instructions")
     expect(parsed.messages).toBeUndefined()
     expect(parsed.input).toEqual([
@@ -430,8 +433,54 @@ describe("auth", () => {
     expect(parsed.tool_choice).toBe("auto")
     expect(parsed.parallel_tool_calls).toBe(false)
     expect(parsed.store).toBe(false)
-    expect(parsed.stream).toBe(false)
-    expect(parsed.include).toEqual([])
+    expect(parsed.stream).toBe(true)
+    expect(parsed.include).toEqual(["reasoning.encrypted_content"])
+  })
+
+  test("OpenAI OAuth converts Codex SSE responses back to JSON for generateText", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      openai: {
+        type: "oauth",
+        access: "access-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 3600_000,
+      },
+    })
+    const resolver = createCredentialResolver(
+      fakeClient([
+        {
+          id: "openai",
+          source: "custom",
+          env: ["OPENAI_API_KEY"],
+          key: "opencode-oauth-dummy-key",
+        },
+      ]),
+      resolveOptions({ translatorModel: "openai/gpt-5.5" }),
+      {
+        fetchImpl: async () =>
+          new Response(
+            `event: response.completed\ndata: ${JSON.stringify({
+              type: "response.completed",
+              response: { id: "resp_1", output: [], usage: { input_tokens: 1, output_tokens: 1 } },
+            })}\n\n`,
+            { status: 200, headers: { "Content-Type": "text/event-stream" } },
+          ),
+        sleep: async () => undefined,
+      },
+    )
+
+    const resolved = await resolver.resolve("openai/gpt-5.5")
+    const response = await resolved.fetch!("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.5",
+        input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
+      }),
+    })
+
+    expect(response.headers.get("content-type")).toContain("application/json")
+    expect(await response.json()).toEqual({ id: "resp_1", output: [], usage: { input_tokens: 1, output_tokens: 1 } })
   })
 
   test("OpenAI OAuth rewrites Chat Completions messages to Codex request shape", async () => {

@@ -447,26 +447,27 @@ describe("translator", () => {
       fetchImpl: async (input, init) => {
         finalUrl = input instanceof URL ? input.href : String(input)
         finalBody = String(init?.body)
-        return new Response(
-          JSON.stringify({
-            id: "resp_1",
-            created_at: 1_700_000_000,
-            model: "gpt-5.5",
-            output: [
-              {
-                type: "message",
-                id: "msg_1",
-                role: "assistant",
-                content: [{ type: "output_text", text: "hello", annotations: [] }],
-              },
-            ],
-            usage: {
-              input_tokens: 1,
-              output_tokens: 1,
-              total_tokens: 2,
+        const response = {
+          id: "resp_1",
+          created_at: 1_700_000_000,
+          model: "gpt-5.5",
+          output: [
+            {
+              type: "message",
+              id: "msg_1",
+              role: "assistant",
+              content: [{ type: "output_text", text: "hello", annotations: [] }],
             },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+          ],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 1,
+            total_tokens: 2,
+          },
+        }
+        return new Response(
+          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response })}\n\n`,
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
         )
       },
       sleep: async () => undefined,
@@ -485,6 +486,8 @@ describe("translator", () => {
       expect(translated).toBe("hello")
       expect(finalUrl).toBe("https://chatgpt.com/backend-api/codex/responses")
       expect(parsed.instructions).toContain("professional translator")
+      expect(parsed.stream).toBe(true)
+      expect(parsed.include).toEqual(["reasoning.encrypted_content"])
       expect(parsed.input).toEqual([
         { type: "message", role: "user", content: [{ type: "input_text", text: "<text>\n안녕\n</text>" }] },
       ])

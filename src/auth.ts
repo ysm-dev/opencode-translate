@@ -142,24 +142,30 @@ function normalizeCodexInputItem(item: unknown, instructions: string[]): unknown
   return item
 }
 
-function rewriteOpenAICodexBody(body: BodyInit | null | undefined): BodyInit | null | undefined {
-  if (typeof body !== "string") return body
+interface CodexBodyRewrite {
+  body: BodyInit | null | undefined
+  originalStream: boolean
+}
+
+function rewriteOpenAICodexBody(body: BodyInit | null | undefined): CodexBodyRewrite {
+  if (typeof body !== "string") return { body, originalStream: false }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(body)
   } catch {
-    return body
+    return { body, originalStream: false }
   }
 
-  if (!isRecord(parsed)) return body
+  if (!isRecord(parsed)) return { body, originalStream: false }
+  const originalStream = parsed.stream === true
 
   const sourceInput = Array.isArray(parsed.input)
     ? parsed.input
     : Array.isArray(parsed.messages)
       ? parsed.messages
       : undefined
-  if (!sourceInput) return body
+  if (!sourceInput) return { body, originalStream }
 
   const instructions: string[] = []
   if (typeof parsed.instructions === "string" && parsed.instructions) instructions.push(parsed.instructions)
@@ -168,18 +174,53 @@ function rewriteOpenAICodexBody(body: BodyInit | null | undefined): BodyInit | n
     .map((item) => normalizeCodexInputItem(item, instructions))
     .filter((item): item is unknown => item !== undefined)
 
-  return JSON.stringify({
-    ...parsed,
-    instructions: instructions.join("\n\n"),
-    input,
-    tools: Array.isArray(parsed.tools) ? parsed.tools : [],
-    tool_choice: typeof parsed.tool_choice === "string" ? parsed.tool_choice : "auto",
-    parallel_tool_calls: typeof parsed.parallel_tool_calls === "boolean" ? parsed.parallel_tool_calls : false,
-    store: typeof parsed.store === "boolean" ? parsed.store : false,
-    stream: typeof parsed.stream === "boolean" ? parsed.stream : false,
-    include: Array.isArray(parsed.include) ? parsed.include : [],
-    messages: undefined,
-  })
+  const include = Array.isArray(parsed.include)
+    ? parsed.include.filter((item): item is string => typeof item === "string")
+    : []
+  if (!include.includes("reasoning.encrypted_content")) include.push("reasoning.encrypted_content")
+
+  return {
+    body: JSON.stringify({
+      ...parsed,
+      instructions: instructions.join("\n\n"),
+      input,
+      tools: Array.isArray(parsed.tools) ? parsed.tools : [],
+      tool_choice: typeof parsed.tool_choice === "string" ? parsed.tool_choice : "auto",
+      parallel_tool_calls: typeof parsed.parallel_tool_calls === "boolean" ? parsed.parallel_tool_calls : false,
+      store: false,
+      stream: true,
+      include,
+      max_output_tokens: undefined,
+      max_completion_tokens: undefined,
+      messages: undefined,
+    }),
+    originalStream,
+  }
+}
+
+function parseCodexSSEResponse(text: string): unknown | undefined {
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith("data: ")) continue
+    const payload = line.slice(6).trim()
+    if (!payload || payload === "[DONE]") continue
+    try {
+      const parsed = JSON.parse(payload) as Record<string, unknown>
+      if ((parsed.type === "response.done" || parsed.type === "response.completed") && parsed.response) {
+        return parsed.response
+      }
+    } catch {}
+  }
+  return undefined
+}
+
+async function convertCodexSSEToJSON(response: Response): Promise<Response> {
+  const headers = new Headers(response.headers)
+  const text = await response.text()
+  const parsed = parseCodexSSEResponse(text)
+  if (!parsed) return new Response(text, { status: response.status, statusText: response.statusText, headers })
+
+  headers.set("content-type", "application/json; charset=utf-8")
+  return new Response(JSON.stringify(parsed), { status: response.status, statusText: response.statusText, headers })
 }
 
 function isMissingCredentialError(error: unknown): boolean {
@@ -495,6 +536,7 @@ export function createCredentialResolver(
         input instanceof URL ? new URL(input.href) : new URL(typeof input === "string" ? input : input.url)
 
       let nextBody = init?.body
+      let convertCodexResponse = false
 
       if (providerID === "anthropic") {
         // Match the Claude Code CLI fingerprint so Anthropic's OAuth rate-limit
@@ -514,11 +556,16 @@ export function createCredentialResolver(
           inputUrl.hostname === "api.openai.com" &&
           (inputUrl.pathname === "/v1/chat/completions" || inputUrl.pathname === "/v1/responses")
         ) {
+          const rewritten = rewriteOpenAICodexBody(nextBody)
           inputUrl.protocol = "https:"
           inputUrl.hostname = "chatgpt.com"
           inputUrl.pathname = "/backend-api/codex/responses"
           inputUrl.search = ""
-          nextBody = rewriteOpenAICodexBody(nextBody)
+          nextBody = rewritten.body
+          convertCodexResponse = !rewritten.originalStream
+          headers.set("OpenAI-Beta", "responses=experimental")
+          headers.set("originator", "codex_cli_rs")
+          headers.set("accept", "text/event-stream")
           headers.delete("content-length")
         }
       }
@@ -547,11 +594,13 @@ export function createCredentialResolver(
         }
       }
 
-      return fetchImpl(inputUrl, {
+      const response = await fetchImpl(inputUrl, {
         ...init,
         headers,
         body: nextBody,
       })
+      if (convertCodexResponse && response.ok) return convertCodexSSEToJSON(response)
+      return response
     }
   }
 
