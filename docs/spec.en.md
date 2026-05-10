@@ -697,7 +697,7 @@ this order:
 | `providerID` | Refresh endpoint | Request body | Bearer source | Extra required on every request |
 | --- | --- | --- | --- | --- |
 | `anthropic` | `POST https://console.anthropic.com/v1/oauth/token` | `{"grant_type":"refresh_token","refresh_token":<refresh>,"client_id":"9d1c250a-e61b-44d9-88ed-5944d1962f5e"}` (Content-Type: `application/json`) | `info.access` | `Authorization: Bearer <access>`; `anthropic-beta: oauth-2025-04-20,interleaved-thinking-2025-05-14`; `anthropic-version: 2023-06-01`; delete `x-api-key`; optional `?beta=true` query on `/v1/messages`. |
-| `openai` (Codex) | `POST https://auth.openai.com/oauth/token` | `{"grant_type":"refresh_token","refresh_token":<refresh>,"client_id":"app_EMoamEEZ73f0CkXaXp7hrann","scope":"openid profile email offline_access"}` (form body) | `info.access` | `Authorization: Bearer <access>`; `ChatGPT-Account-Id: <info.accountId>`; URL rewrite from `api.openai.com/v1/chat/completions` and `api.openai.com/v1/responses` to `https://chatgpt.com/backend-api/codex/responses`. |
+| `openai` (Codex) | `POST https://auth.openai.com/oauth/token` | `{"grant_type":"refresh_token","refresh_token":<refresh>,"client_id":"app_EMoamEEZ73f0CkXaXp7hrann"}` (form body) | `info.access` | `Authorization: Bearer <access>`; `ChatGPT-Account-Id: <info.accountId>`; URL rewrite from `api.openai.com/v1/chat/completions` and `api.openai.com/v1/responses` to `https://chatgpt.com/backend-api/codex/responses`; body normalization from AI SDK `messages` / Responses `input` shorthand to Codex typed `input` items, moving system/developer text to `instructions`. |
 | `github-copilot` | Token exchange `GET https://api.github.com/copilot_internal/v2/token` with `Authorization: token <info.refresh>` | n/a (bearer GitHub PAT in `refresh`) | session token returned by exchange (expires per response) | `Authorization: Bearer <session_token>`; `Editor-Version: opencode-translate/<version>`; `Editor-Plugin-Version: opencode-translate/<version>`; `Copilot-Integration-Id: vscode-chat`. If `info.enterpriseUrl` is set, use it as base URL instead of `api.githubcopilot.com`. |
 
 **Refresh semantics.**
@@ -731,7 +731,12 @@ this order:
    above.
 3. Deletes `x-api-key` where required (Anthropic).
 4. Rewrites the URL where required (Codex).
-5. Delegates to global `fetch` and returns its `Response`.
+5. Normalizes OpenAI OAuth request bodies for Codex: `system` / `developer`
+   text becomes `instructions`, user / assistant items become
+   `{type:"message", role, content:[...]}`, and missing Codex fields such as
+   `tools`, `tool_choice`, `parallel_tool_calls`, `store`, `stream`, and
+   `include` receive safe defaults.
+6. Delegates to global `fetch` and returns its `Response`.
 
 The plugin does **not** replicate abuse-detection evasions that opencode
 itself removed in commit `1ac1a0287` ("anthropic legal requests"):

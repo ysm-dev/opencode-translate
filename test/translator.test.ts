@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import { __resetActivationCacheForTest, createHooks } from "../src/activation"
-import type { MessageWithPartsLike, PluginClientLike, TextPartLike } from "../src/constants"
+import { __resetAuthCachesForTest, createCredentialResolver } from "../src/auth"
+import { type MessageWithPartsLike, type PluginClientLike, resolveOptions, type TextPartLike } from "../src/constants"
 import {
   __resetSyntheticPartIDForTest,
   __resetTranslatorCachesForTest,
@@ -63,6 +64,7 @@ function encodeAscendingPartIDForTest(timestamp: number, counter: number): strin
 describe("translator", () => {
   beforeEach(() => {
     __resetActivationCacheForTest()
+    __resetAuthCachesForTest()
     __resetTranslatorCachesForTest()
   })
 
@@ -148,6 +150,42 @@ describe("translator", () => {
 
     expect(translated).toBe("hello")
     expect(calls).toBe(2)
+  })
+
+  test("OpenAI reasoning translators omit unsupported temperature", async () => {
+    let request: Record<string, unknown> | undefined
+    const translator = createTranslator(
+      fakeClient([]),
+      {
+        translatorModel: "openai/gpt-5.5",
+        triggerKeywords: ["$en"],
+        sourceLanguage: "ko",
+        displayLanguage: "ko",
+        verbose: false,
+      },
+      {
+        credentialResolver: {
+          resolve: async () => ({ providerID: "openai", apiKey: "test-key", mode: "apiKey" as const }),
+          isMissingCredentialError: () => false,
+          authUnavailable: () => new Error("unused"),
+          envFallback: "OPENAI_API_KEY",
+        },
+        generateTextImpl: async (input) => {
+          request = input as Record<string, unknown>
+          return { text: "hello" } as never
+        },
+        sleep: async () => undefined,
+      },
+    )
+
+    await translator.translateText({
+      text: "안녕",
+      sourceLanguage: "ko",
+      targetLanguage: "en",
+      direction: "inbound",
+    })
+
+    expect(request?.temperature).toBeUndefined()
   })
 
   test("final failure in chat.message does not throw and falls back to the untranslated text", async () => {
@@ -375,5 +413,83 @@ describe("translator", () => {
     ).rejects.toThrow(
       '[opencode-translate:AUTH_UNAVAILABLE] No credential found for provider "anthropic". Set ANTHROPIC_API_KEY in the environment, run "opencode auth login anthropic", or set options.apiKey in opencode.json.',
     )
+  })
+
+  test("OpenAI OAuth translator requests are Codex-compatible", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      openai: {
+        type: "oauth",
+        access: "access-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 3600_000,
+        accountId: "acct_1",
+      },
+    })
+    const client = {
+      ...fakeClient([]),
+      provider: {
+        list: async () => ({
+          all: [
+            {
+              id: "openai",
+              source: "custom" as const,
+              env: ["OPENAI_API_KEY"],
+              key: "opencode-oauth-dummy-key",
+            },
+          ],
+        }),
+      },
+    }
+    const options = resolveOptions({ translatorModel: "openai/gpt-5.5", sourceLanguage: "ko", displayLanguage: "ko" })
+    let finalUrl = ""
+    let finalBody = ""
+    const credentialResolver = createCredentialResolver(client, options, {
+      fetchImpl: async (input, init) => {
+        finalUrl = input instanceof URL ? input.href : String(input)
+        finalBody = String(init?.body)
+        return new Response(
+          JSON.stringify({
+            id: "resp_1",
+            created_at: 1_700_000_000,
+            model: "gpt-5.5",
+            output: [
+              {
+                type: "message",
+                id: "msg_1",
+                role: "assistant",
+                content: [{ type: "output_text", text: "hello", annotations: [] }],
+              },
+            ],
+            usage: {
+              input_tokens: 1,
+              output_tokens: 1,
+              total_tokens: 2,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        )
+      },
+      sleep: async () => undefined,
+    })
+    const translator = createTranslator(client, options, { credentialResolver, sleep: async () => undefined })
+
+    try {
+      const translated = await translator.translateText({
+        text: "안녕",
+        sourceLanguage: "ko",
+        targetLanguage: "en",
+        direction: "inbound",
+      })
+
+      const parsed = JSON.parse(finalBody) as Record<string, unknown>
+      expect(translated).toBe("hello")
+      expect(finalUrl).toBe("https://chatgpt.com/backend-api/codex/responses")
+      expect(parsed.instructions).toContain("professional translator")
+      expect(parsed.input).toEqual([
+        { type: "message", role: "user", content: [{ type: "input_text", text: "<text>\n안녕\n</text>" }] },
+      ])
+    } finally {
+      delete process.env.OPENCODE_AUTH_CONTENT
+    }
   })
 })

@@ -78,6 +78,110 @@ function setUserAgent(headers: Headers, packageVersion?: string) {
   headers.set("User-Agent", packageVersion ? `${USER_AGENT.replace("0.0.0", packageVersion)}` : USER_AGENT)
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function textFromContent(content: unknown): string | undefined {
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return undefined
+
+  const text = content
+    .map((part) => (isRecord(part) && typeof part.text === "string" ? part.text : undefined))
+    .filter((value): value is string => value !== undefined)
+    .join("\n")
+
+  return text || undefined
+}
+
+function normalizeCodexContent(role: string, content: unknown): Record<string, unknown>[] {
+  const textType = role === "assistant" ? "output_text" : "input_text"
+  if (typeof content === "string") return [{ type: textType, text: content }]
+  if (!Array.isArray(content)) return []
+
+  const result: Record<string, unknown>[] = []
+  for (const part of content) {
+    if (!isRecord(part)) continue
+    const type = part.type
+    if (type === "input_text" || type === "output_text") {
+      result.push({ ...part, type: textType })
+      continue
+    }
+    if (type === "input_image") {
+      result.push({ ...part })
+      continue
+    }
+    if (typeof part.text === "string") {
+      result.push({ type: textType, text: part.text })
+    }
+  }
+
+  return result
+}
+
+function normalizeCodexInputItem(item: unknown, instructions: string[]): unknown | undefined {
+  if (!isRecord(item)) return item
+  const role = typeof item.role === "string" ? item.role : undefined
+
+  if (role === "system" || role === "developer") {
+    const text = textFromContent(item.content)
+    if (text) instructions.push(text)
+    return undefined
+  }
+
+  if (item.type === "message" && role) {
+    const content = normalizeCodexContent(role, item.content)
+    return content.length > 0 ? { ...item, role, content } : undefined
+  }
+
+  if (role) {
+    const content = normalizeCodexContent(role, item.content)
+    return content.length > 0 ? { type: "message", role, content } : undefined
+  }
+
+  return item
+}
+
+function rewriteOpenAICodexBody(body: BodyInit | null | undefined): BodyInit | null | undefined {
+  if (typeof body !== "string") return body
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return body
+  }
+
+  if (!isRecord(parsed)) return body
+
+  const sourceInput = Array.isArray(parsed.input)
+    ? parsed.input
+    : Array.isArray(parsed.messages)
+      ? parsed.messages
+      : undefined
+  if (!sourceInput) return body
+
+  const instructions: string[] = []
+  if (typeof parsed.instructions === "string" && parsed.instructions) instructions.push(parsed.instructions)
+
+  const input = sourceInput
+    .map((item) => normalizeCodexInputItem(item, instructions))
+    .filter((item): item is unknown => item !== undefined)
+
+  return JSON.stringify({
+    ...parsed,
+    instructions: instructions.join("\n\n"),
+    input,
+    tools: Array.isArray(parsed.tools) ? parsed.tools : [],
+    tool_choice: typeof parsed.tool_choice === "string" ? parsed.tool_choice : "auto",
+    parallel_tool_calls: typeof parsed.parallel_tool_calls === "boolean" ? parsed.parallel_tool_calls : false,
+    store: typeof parsed.store === "boolean" ? parsed.store : false,
+    stream: typeof parsed.stream === "boolean" ? parsed.stream : false,
+    include: Array.isArray(parsed.include) ? parsed.include : [],
+    messages: undefined,
+  })
+}
+
 function isMissingCredentialError(error: unknown): boolean {
   const message = normalizeReason(error).toLowerCase()
   return (
@@ -244,7 +348,6 @@ async function refreshOpenAI(
     grant_type: "refresh_token",
     refresh_token: info.refresh,
     client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
-    scope: "openid profile email offline_access",
   })
   const response = await withRetry(
     () =>
@@ -415,6 +518,8 @@ export function createCredentialResolver(
           inputUrl.hostname = "chatgpt.com"
           inputUrl.pathname = "/backend-api/codex/responses"
           inputUrl.search = ""
+          nextBody = rewriteOpenAICodexBody(nextBody)
+          headers.delete("content-length")
         }
       }
 

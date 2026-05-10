@@ -210,6 +210,12 @@ function instantiateModel(provider: unknown, modelID: string): unknown {
   throw new Error(`Unable to instantiate model "${modelID}"`)
 }
 
+function supportsTemperature(providerID: string, modelID: string): boolean {
+  if (providerID !== "openai") return true
+  if (modelID.startsWith("o1") || modelID.startsWith("o3") || modelID.startsWith("o4-mini")) return false
+  return !(modelID.startsWith("gpt-5") && !modelID.startsWith("gpt-5-chat"))
+}
+
 function isAuthMessage(error: unknown): boolean {
   if (!(error instanceof Error)) return false
   return error.message.includes(":AUTH_UNAVAILABLE]") || error.message.includes(":OAUTH_REFRESH_FAILED]")
@@ -272,7 +278,7 @@ export function createTranslator(
               targetLanguage: input.targetLanguage,
               text: input.text,
             }),
-            temperature: 0,
+            ...(supportsTemperature(providerID, modelID) ? { temperature: 0 } : {}),
             prompt: buildUserPrompt({
               sourceLanguage: input.sourceLanguage,
               targetLanguage: input.targetLanguage,

@@ -198,6 +198,62 @@ describe("auth", () => {
     })
   })
 
+  test("expired OpenAI OAuth tokens refresh with Codex form body", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      openai: {
+        type: "oauth",
+        access: "old-access",
+        refresh: "old-refresh",
+        expires: Date.now() - 1000,
+        accountId: "acct_1",
+      },
+    })
+    const authSetCalls: unknown[] = []
+    let refreshBody = ""
+    const resolver = createCredentialResolver(
+      fakeClient(
+        [
+          {
+            id: "openai",
+            source: "custom",
+            env: ["OPENAI_API_KEY"],
+            key: "opencode-oauth-dummy-key",
+          },
+        ],
+        authSetCalls,
+      ),
+      resolveOptions({ translatorModel: "openai/gpt-5.5" }),
+      {
+        fetchImpl: async (_input, init) => {
+          refreshBody = String(init?.body)
+          return new Response(
+            JSON.stringify({ access_token: "new-access", refresh_token: "new-refresh", expires_in: 1800 }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          )
+        },
+        sleep: async () => undefined,
+      },
+    )
+
+    const resolved = await resolver.resolve("openai/gpt-5.5")
+
+    expect(resolved.mode).toBe("oauth")
+    expect(refreshBody).toBe(
+      "grant_type=refresh_token&refresh_token=old-refresh&client_id=app_EMoamEEZ73f0CkXaXp7hrann",
+    )
+    expect(authSetCalls[0]).toEqual({
+      path: { id: "openai" },
+      body: {
+        type: "oauth",
+        access: "new-access",
+        refresh: "new-refresh",
+        expires: expect.any(Number),
+        accountId: "acct_1",
+        enterpriseUrl: undefined,
+      },
+    })
+  })
+
   test("OAuth refresh is coalesced across concurrent resolves", async () => {
     process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
       anthropic: {
@@ -312,6 +368,122 @@ describe("auth", () => {
     expect(finalHeaders.get("anthropic-beta")).toContain("oauth-2025-04-20")
     expect(finalHeaders.get("anthropic-version")).toBe("2023-06-01")
     expect(finalHeaders.get("x-api-key")).toBeNull()
+  })
+
+  test("OpenAI OAuth rewrites Responses requests to Codex request shape", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      openai: {
+        type: "oauth",
+        access: "access-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 3600_000,
+        accountId: "acct_1",
+      },
+    })
+    let finalUrl = ""
+    let finalHeaders = new Headers()
+    let finalBody = ""
+    const resolver = createCredentialResolver(
+      fakeClient([
+        {
+          id: "openai",
+          source: "custom",
+          env: ["OPENAI_API_KEY"],
+          key: "opencode-oauth-dummy-key",
+        },
+      ]),
+      resolveOptions({ translatorModel: "openai/gpt-5.5" }),
+      {
+        fetchImpl: async (input, init) => {
+          finalUrl = input instanceof URL ? input.href : String(input)
+          finalHeaders = new Headers(init?.headers)
+          finalBody = String(init?.body)
+          return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } })
+        },
+        sleep: async () => undefined,
+      },
+    )
+
+    const resolved = await resolver.resolve("openai/gpt-5.5")
+    await resolved.fetch!("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " },
+      body: JSON.stringify({
+        model: "gpt-5.5",
+        input: [
+          { role: "developer", content: "translator instructions" },
+          { role: "user", content: [{ type: "input_text", text: "<text>\n안녕\n</text>" }] },
+        ],
+      }),
+    })
+
+    const parsed = JSON.parse(finalBody) as Record<string, unknown>
+    expect(finalUrl).toBe("https://chatgpt.com/backend-api/codex/responses")
+    expect(finalHeaders.get("Authorization")).toBe("Bearer access-token")
+    expect(finalHeaders.get("ChatGPT-Account-Id")).toBe("acct_1")
+    expect(parsed.instructions).toBe("translator instructions")
+    expect(parsed.messages).toBeUndefined()
+    expect(parsed.input).toEqual([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "<text>\n안녕\n</text>" }] },
+    ])
+    expect(parsed.tools).toEqual([])
+    expect(parsed.tool_choice).toBe("auto")
+    expect(parsed.parallel_tool_calls).toBe(false)
+    expect(parsed.store).toBe(false)
+    expect(parsed.stream).toBe(false)
+    expect(parsed.include).toEqual([])
+  })
+
+  test("OpenAI OAuth rewrites Chat Completions messages to Codex request shape", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      openai: {
+        type: "oauth",
+        access: "access-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 3600_000,
+      },
+    })
+    let finalBody = ""
+    const resolver = createCredentialResolver(
+      fakeClient([
+        {
+          id: "openai",
+          source: "custom",
+          env: ["OPENAI_API_KEY"],
+          key: "opencode-oauth-dummy-key",
+        },
+      ]),
+      resolveOptions({ translatorModel: "openai/gpt-5.5" }),
+      {
+        fetchImpl: async (_input, init) => {
+          finalBody = String(init?.body)
+          return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } })
+        },
+        sleep: async () => undefined,
+      },
+    )
+
+    const resolved = await resolver.resolve("openai/gpt-5.5")
+    await resolved.fetch!("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.5",
+        messages: [
+          { role: "system", content: "system instructions" },
+          { role: "user", content: "안녕" },
+          { role: "assistant", content: "hello" },
+        ],
+      }),
+    })
+
+    const parsed = JSON.parse(finalBody) as Record<string, unknown>
+    expect(parsed.instructions).toBe("system instructions")
+    expect(parsed.messages).toBeUndefined()
+    expect(parsed.input).toEqual([
+      { type: "message", role: "user", content: [{ type: "input_text", text: "안녕" }] },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "hello" }] },
+    ])
   })
 
   test("provider-list failures fall through to default resolution instead of throwing", async () => {
