@@ -459,10 +459,13 @@ describe("auth", () => {
       {
         fetchImpl: async () =>
           new Response(
-            `event: response.completed\ndata: ${JSON.stringify({
-              type: "response.completed",
-              response: { id: "resp_1", output: [], usage: { input_tokens: 1, output_tokens: 1 } },
-            })}\n\n`,
+            [
+              `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}\n\n`,
+              `event: response.completed\ndata: ${JSON.stringify({
+                type: "response.completed",
+                response: { id: "resp_1", output: [], usage: { input_tokens: 1, output_tokens: 1 } },
+              })}\n\n`,
+            ].join(""),
             { status: 200, headers: { "Content-Type": "text/event-stream" } },
           ),
         sleep: async () => undefined,
@@ -480,7 +483,18 @@ describe("auth", () => {
     })
 
     expect(response.headers.get("content-type")).toContain("application/json")
-    expect(await response.json()).toEqual({ id: "resp_1", output: [], usage: { input_tokens: 1, output_tokens: 1 } })
+    expect(await response.json()).toEqual({
+      id: "resp_1",
+      output: [
+        {
+          type: "message",
+          id: "msg_opencode_translate_0",
+          role: "assistant",
+          content: [{ type: "output_text", text: "hello", annotations: [] }],
+        },
+      ],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
   })
 
   test("OpenAI OAuth rewrites Chat Completions messages to Codex request shape", async () => {

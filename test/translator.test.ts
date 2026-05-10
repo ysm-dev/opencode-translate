@@ -447,26 +447,24 @@ describe("translator", () => {
       fetchImpl: async (input, init) => {
         finalUrl = input instanceof URL ? input.href : String(input)
         finalBody = String(init?.body)
-        const response = {
-          id: "resp_1",
-          created_at: 1_700_000_000,
-          model: "gpt-5.5",
-          output: [
-            {
-              type: "message",
-              id: "msg_1",
-              role: "assistant",
-              content: [{ type: "output_text", text: "hello", annotations: [] }],
-            },
-          ],
-          usage: {
-            input_tokens: 1,
-            output_tokens: 1,
-            total_tokens: 2,
-          },
-        }
         return new Response(
-          `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response })}\n\n`,
+          [
+            `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: "hello" })}\n\n`,
+            `event: response.completed\ndata: ${JSON.stringify({
+              type: "response.completed",
+              response: {
+                id: "resp_1",
+                created_at: 1_700_000_000,
+                model: "gpt-5.5",
+                output: [],
+                usage: {
+                  input_tokens: 1,
+                  output_tokens: 1,
+                  total_tokens: 2,
+                },
+              },
+            })}\n\n`,
+          ].join(""),
           { status: 200, headers: { "Content-Type": "text/event-stream" } },
         )
       },
