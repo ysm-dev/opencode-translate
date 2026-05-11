@@ -152,6 +152,38 @@ describe("translator", () => {
     expect(calls).toBe(2)
   })
 
+  test("unwraps echoed text envelope from translator output", async () => {
+    const translator = createTranslator(
+      fakeClient([]),
+      {
+        translatorModel: "anthropic/claude-haiku-4-5",
+        triggerKeywords: ["$en"],
+        sourceLanguage: "en",
+        displayLanguage: "ko",
+        verbose: false,
+      },
+      {
+        credentialResolver: {
+          resolve: async () => ({ providerID: "anthropic", apiKey: "test-key", mode: "apiKey" as const }),
+          isMissingCredentialError: () => false,
+          authUnavailable: () => new Error("unused"),
+          envFallback: "ANTHROPIC_API_KEY",
+        },
+        generateTextImpl: async () => ({ text: "<text>\n안녕하세요\n</text>" }) as never,
+        sleep: async () => undefined,
+      },
+    )
+
+    const translated = await translator.translateText({
+      text: "Hello",
+      sourceLanguage: "en",
+      targetLanguage: "ko",
+      direction: "outbound",
+    })
+
+    expect(translated).toBe("안녕하세요")
+  })
+
   test("OpenAI reasoning translators omit unsupported temperature", async () => {
     let request: Record<string, unknown> | undefined
     const translator = createTranslator(

@@ -167,6 +167,27 @@ describe("tool.execute hooks", () => {
     expect(args.questions[0].options[0].label).toBe("[ko]Yes, delete")
   })
 
+  test("tool.execute.before removes echoed text envelope from translated question args", async () => {
+    const hooks = createHooks(
+      { client: fakeClient(), directory: "/workspace" } as never,
+      { sourceLanguage: "ko", displayLanguage: "ko" },
+      {
+        translator: {
+          translateText: async ({ text }) => `<text>\n[ko]${text}\n</text>`,
+        },
+      },
+    )
+
+    const args: QuestionArgs = JSON.parse(JSON.stringify(sampleArgs))
+    await hooks["tool.execute.before"]!({ tool: "question", sessionID: "ses_1", callID: "call_wrapped" }, {
+      args,
+    } as never)
+
+    expect(args.questions[0].question).toBe("[ko]Are you sure?")
+    expect(args.questions[0].options[0].label).toBe("[ko]Yes, delete")
+    expect(args.questions[0].question).not.toContain("<text>")
+  })
+
   test("tool.execute.before is a no-op for non-question tools", async () => {
     const hooks = createHooks(
       { client: fakeClient(), directory: "/workspace" } as never,

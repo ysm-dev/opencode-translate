@@ -12,7 +12,7 @@ import {
   parseTranslatorModel,
   type ResolvedTranslateOptions,
 } from "./constants"
-import { buildSystemPrompt, buildUserPrompt } from "./prompts"
+import { buildSystemPrompt, buildUserPrompt, unwrapEchoedTextEnvelope } from "./prompts"
 
 interface TranslatorDependencies {
   generateTextImpl?: typeof generateText
@@ -268,7 +268,7 @@ export function createTranslator(
     const provider = instantiateProvider(factory, providerID, credentials)
     const model = instantiateModel(provider, modelID)
 
-    const translated = await withRetry(async () => {
+    const rawTranslated = await withRetry(async () => {
       try {
         const result = (await withTimeout(
           generateTextImpl({
@@ -297,6 +297,7 @@ export function createTranslator(
         throw error
       }
     }, sleepImpl)
+    const translated = unwrapEchoedTextEnvelope(rawTranslated)
 
     if (options.verbose) {
       await client.app.log({

@@ -15,6 +15,8 @@
 // A per-callID snapshot is kept so mapping a user-selected translated label
 // back to its original English label is deterministic.
 
+import { unwrapEchoedTextEnvelope } from "./prompts"
+
 type TextRecord = { question: string; header: string; options: OptionRecord[]; multiple?: boolean; custom?: boolean }
 type OptionRecord = { label: string; description: string }
 
@@ -75,7 +77,7 @@ async function assignTranslation(
   const original = container[key]
   if (!original || original.length === 0) return
   const translated = await translate(original)
-  container[key] = translated
+  container[key] = unwrapEchoedTextEnvelope(translated)
 }
 
 // Translate every display-facing string in `args` in parallel. Returns the
