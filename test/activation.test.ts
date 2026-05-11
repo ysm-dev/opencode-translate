@@ -155,7 +155,7 @@ describe("activation", () => {
     expect(withFallback).toEqual(state)
   })
 
-  test("first-message-only activation ignores later triggers", async () => {
+  test("later root-session trigger activates from that message", async () => {
     let calls = 0
     const hooks = createHooks(
       {
@@ -180,9 +180,16 @@ describe("activation", () => {
 
     await hooks["chat.message"]!({ sessionID: "ses_1" }, output as never)
 
-    expect(calls).toBe(0)
-    expect(output.parts).toHaveLength(1)
-    expect((output.parts[0] as TextPartLike).text).toBe("hello $en world")
+    expect(calls).toBe(1)
+    expect(output.parts).toHaveLength(3)
+    expect((output.parts[0] as TextPartLike).text).toContain("hello world\n\n_→ EN: EN:hello world_")
+    expect((output.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
+    expect((output.parts[0] as TextPartLike).text).not.toContain("$en")
+    expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:hello world")
+    expect((output.parts[1] as TextPartLike).text).toBe("EN:hello world")
+    expect((output.parts[1] as TextPartLike).synthetic).toBe(true)
+    expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
+    expect((output.parts[2] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
   })
 
   test("child sessions are a no-op", async () => {
@@ -266,7 +273,7 @@ describe("activation", () => {
     expect((output.parts[1] as TextPartLike).text).toBe("EN:새 메시지")
   })
 
-  test("forked untranslated session remains inactive", async () => {
+  test("untranslated root session without trigger remains inactive", async () => {
     let calls = 0
     const hooks = createHooks(
       {
@@ -327,7 +334,7 @@ describe("activation", () => {
 
     await hooks["chat.message"]!({ sessionID: "ses_1" }, output as never)
 
-    expect(counted.calls).toEqual({ get: 2, messages: 2, message: 0 })
+    expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
     expect(calls).toEqual(["inbound"])
     expect((output.parts[0] as TextPartLike).text).toContain("안녕\n\n_→ EN: EN:안녕_")
     expect((output.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
@@ -341,7 +348,7 @@ describe("activation", () => {
     expect((output.parts[2] as TextPartLike).ignored).toBe(true)
   })
 
-  test("inactive session cache skips later session lookups", async () => {
+  test("inactive root cache still allows later activation", async () => {
     let translatorCalls = 0
     const counted = countingClient([])
     const hooks = createHooks(
@@ -371,16 +378,11 @@ describe("activation", () => {
     expect(translatorCalls).toBe(0)
     expect((firstOutput.parts[0] as TextPartLike).text).toBe("no trigger")
 
-    const laterOutput = {
-      message: { id: "msg_later" },
-      parts: [textPart("p2", "$en later trigger")],
-    }
     const transformOutput = {
       messages: [storedMessage([textPart("hist", "previous")])],
     }
     const completeOutput = { text: "assistant text" }
 
-    await hooks["chat.message"]!({ sessionID: "ses_1" }, laterOutput as never)
     await hooks["experimental.chat.messages.transform"]!({} as never, transformOutput as never)
     await hooks["experimental.text.complete"]!(
       { sessionID: "ses_1", messageID: "msg_assistant" } as never,
@@ -388,9 +390,21 @@ describe("activation", () => {
     )
 
     expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
-    expect(translatorCalls).toBe(0)
-    expect((laterOutput.parts[0] as TextPartLike).text).toBe("$en later trigger")
     expect(completeOutput.text).toBe("assistant text")
+
+    const laterOutput = {
+      message: { id: "msg_later" },
+      parts: [textPart("p2", "$en later trigger")],
+    }
+
+    await hooks["chat.message"]!({ sessionID: "ses_1" }, laterOutput as never)
+
+    expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
+    expect(translatorCalls).toBe(1)
+    expect((laterOutput.parts[0] as TextPartLike).text).toContain("later trigger\n\n_→ EN: EN:later trigger_")
+    expect((laterOutput.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
+    expect((laterOutput.parts[1] as TextPartLike).text).toBe("EN:later trigger")
+    expect((laterOutput.parts[2] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
   })
 
   test("active session cache skips repeated state lookups across hooks", async () => {

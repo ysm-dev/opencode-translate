@@ -29,8 +29,9 @@ only**. The plugin is a translation proxy that:
 3. Translates the main LLM's English response back into the user's
    configured `displayLanguage` for rendering in the TUI / client.
 4. Is **session-scoped**: activation happens once per session via a prefix
-   keyword (default `$en`) on the first user message, then every
-   subsequent message in that session is translated in both directions.
+   keyword (default `$en`) on any root-session user message, then that
+   message and every subsequent message in that session is translated in
+   both directions.
 
 The user types in, for example, Korean (or any other configured source
 language); the main-chat LLM sees English; the user reads the reply as
@@ -248,9 +249,9 @@ can and cannot guarantee.
 
 ### 4.1 Activation
 
-- On the **first user message** of a session (and only on a **root**
-  session — `session.parentID` must be absent; see §4.5), the plugin
-  inspects every text part inside the `chat.message` hook.
+- On any user message in a **root** session while translation mode is not
+  already active (`session.parentID` must be absent; see §4.5), the
+  plugin inspects every text part inside the `chat.message` hook.
 - If any text part contains any configured `triggerKeywords` token
   (default `["$en"]`) as a whitespace-separated token, the session is
   marked active.
@@ -315,7 +316,7 @@ preference) or from any translation-enabled user text part (fallback). A
 per-process `Map<sessionID, flags>` is kept purely as a hot-path cache
 and is refilled lazily from metadata.
 
-### 4.4 Detecting "first user message" and active sessions
+### 4.4 Detecting Activatable and Active Sessions
 
 Inside every hook invocation the plugin resolves translation state using
 this exact algorithm:
@@ -337,17 +338,18 @@ this exact algorithm:
    (`metadata.translate_role === "activation_banner"`), that record wins.
 6. Else, if any valid user-text-part record exists, the session is active
    and inherits that record.
-7. Else, if and only if `storedMessages.length === 0`, the session is a
-   **fresh root session** and the current unsaved message is the only
-   activation candidate. The plugin may scan this message for a trigger
-   keyword.
-8. Else, the session is inactive. Later messages in that session cannot
-   activate translation mode.
+7. Else, the session is an inactive root session and the current unsaved
+   message is an activation candidate. The plugin may scan this message
+   for a trigger keyword regardless of how many prior messages are stored.
+8. If the current message does not contain a trigger, the session remains
+   inactive for this hook invocation; a later root-session user message may
+   still activate translation mode.
 
 This is the entire activation model for v1. There is no separate notion
 of "resumed" vs "continued" vs "imported" sessions: if valid
 translation metadata exists in stored history, the session is active;
-otherwise only an empty root session may activate.
+otherwise any root-session user message may activate from that point
+forward.
 
 ### 4.5 Subagents (task tool)
 
@@ -373,8 +375,8 @@ this means:
    metadata is copied into stored history.
 2. No new trigger keyword is required after a fork.
 3. If the source session was not translation-enabled, the forked session
-   is also not translation-enabled; since it is no longer empty, it can
-   never be activated later.
+   is also not translation-enabled until a later user message in that root
+   session contains a trigger keyword.
 
 This inheritance is intentional for UX consistency. Users who want a raw
 English continuation must start a brand-new session, not fork a
@@ -385,7 +387,7 @@ translation-enabled one.
 ### 5.1 Inbound (user → LLM)
 
 ```
-  User types (Korean, first message includes "$en")
+  User types (Korean, current message includes "$en")
                │
                ▼
   chat.message hook:
@@ -394,9 +396,9 @@ translation-enabled one.
        immediately (subagent).
     1. prior = client.session.messages({ sessionID, directory }).
     2. Resolve active state exactly as in §4.4.
-    3. If this is a fresh root session with no stored messages, scan the
-       current unsaved message for a trigger keyword and, if found,
-       activate the session.
+    3. If no active state exists, scan the current unsaved root-session
+       message for a trigger keyword and, if found, activate the session
+       from this message forward.
     4. If activation occurred on this turn, create the activation banner
        part (§4.1) with a fresh 32-char lowercase hex session nonce.
     5. if session is translation-enabled:
@@ -479,8 +481,8 @@ translation-enabled one.
 
 - The plugin iterates the current message's user-authored text parts in
   stored order.
-- Trigger matching runs only when `storedMessages.length === 0` and only
-  across those user-authored text parts.
+- Trigger matching runs only when no active translation state exists and
+  only across those user-authored text parts.
 - For each part in order, and for each keyword in `triggerKeywords`
   order, the plugin searches for the first match of the exact
   ECMAScript pattern `(^|[ \t\r\n\f\v])KEYWORD(?=$|[ \t\r\n\f\v])`
@@ -1044,7 +1046,7 @@ Via `opencode.json`:
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `translatorModel` | string | `"anthropic/claude-haiku-4-5"` | Translator model id in `provider/model-id` form understood by `ai`'s provider resolver. |
-| `triggerKeywords` | string[] | `["$en"]` | Tokens whose presence in the first user message of a root session activates translation mode. Matched as whitespace-separated tokens; case-sensitive. |
+| `triggerKeywords` | string[] | `["$en"]` | Tokens whose presence in any inactive root-session user message activates translation mode from that message forward. Matched as whitespace-separated tokens; case-sensitive. |
 | `sourceLanguage` | string | `"en"` | The language the user types in. ISO-639-1 preferred (`ko`, `ja`, `zh`, `de`, …). When equal to `"en"`, the **inbound** translation step is a no-op. |
 | `displayLanguage` | string | `"en"` | The language the plugin renders assistant output in. When equal to `"en"`, the **outbound** translation step is a no-op. |
 | `apiKey` | string | `undefined` | Optional. When set, used verbatim as the translator provider's `apiKey` and takes precedence over opencode's stored auth and env vars (§6.3.1). Intended for users who want the translator to use a different credential than the main chat. |
@@ -1306,7 +1308,7 @@ npm install -g opencode-translate
 #   b) export ANTHROPIC_API_KEY=sk-ant-...
 # Both work; the plugin resolves per §6.3.1.
 
-opencode    # first message in a new session begins with "$en"
+opencode    # include "$en" in the message where translation should begin
 ```
 
 ## 14. Testing Strategy
@@ -1328,7 +1330,7 @@ in the README and requires an `ANTHROPIC_API_KEY`.
     - `literal $en and trigger $en` removes only the first matching
       occurrence selected by §5.1 and leaves the second untouched.
   - Multiple keywords (`["$en", "$tr"]`) match as disjunction.
-  - First-message-only: keyword in second message does not activate.
+  - Later root-session trigger activates from that message forward.
   - Child session (non-null `parentID` on the session returned by
     `client.session.get`) is detected and the plugin is a no-op.
   - Forked translated session inherits translation mode without a new
@@ -1706,7 +1708,7 @@ inline makes future re-reads faster.
 This spec is the output of a design interview plus review passes.
 Decisions taken, in order:
 
-1. Activation: first-message keyword → whole-session ON.
+1. Activation: root-session keyword → translation ON from that message forward.
 2. Storage: keep user's original text, translate to English per turn
    with caching.
 3. Translator: dedicated cheap model (default Haiku) configurable via

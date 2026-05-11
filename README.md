@@ -4,7 +4,7 @@
 
 ## What It Does
 
-- Activates once per root session when the first user message contains a trigger keyword such as `$en`.
+- Activates once per root session when any root-session user message contains a trigger keyword such as `$en`.
 - Translates user-authored text parts from `sourceLanguage` to English before the main LLM sees them.
 - Stores the original user text, plus a cached English translation in part metadata.
 - Shows a visible `→ EN: ...` preview under each translated user text part.
@@ -42,7 +42,7 @@ Hooks never throw. If the translator fails (network error, auth failure, provide
 1. Logs the error via `client.app.log` (visible with `verbose: true`).
 2. Emits a `⚠️ Translation failed: …` synthetic part.
 3. Falls back to sending the original (untranslated) user text to the model.
-4. On first-turn activation failure, it also rolls back activation so the next turn retries cleanly.
+4. On activation-turn failure, it also rolls back activation so the next turn retries cleanly.
 
 A stalled provider request is additionally bounded by a 60s hard timeout per translation call, so a hung upstream cannot block the OpenCode session.
 
@@ -75,7 +75,7 @@ opencode auth login anthropic
 export ANTHROPIC_API_KEY=...
 ```
 
-Start a brand-new session and put the trigger in the first message:
+Put the trigger in the message where translation should begin. Earlier messages in the session are left as-is:
 
 ```text
 $en 프로젝트 루트의 package.json을 읽고 요약해줘

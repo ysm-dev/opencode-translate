@@ -32,7 +32,12 @@ import {
 } from "./question-tool"
 import { createSyntheticPartID, createTranslator, hashText } from "./translator"
 
-const sessionStateCache = new Map<string, TranslateState | null>()
+const INACTIVE_ROOT_SESSION = "inactive-root"
+const INACTIVE_CHILD_SESSION = "inactive-child"
+
+type CachedSessionState = TranslateState | typeof INACTIVE_ROOT_SESSION | typeof INACTIVE_CHILD_SESSION
+
+const sessionStateCache = new Map<string, CachedSessionState>()
 const questionSnapshots = new Map<string, QuestionSnapshot>()
 const QUESTION_TOOL_ID = "question"
 
@@ -249,10 +254,26 @@ async function resolveSessionState(
 ): Promise<ResolvedSessionState> {
   const cached = sessionStateCache.get(sessionID)
   if (cached !== undefined) {
+    if (cached === INACTIVE_ROOT_SESSION) {
+      return {
+        sessionActive: false,
+        canActivate: true,
+        storedMessages: [],
+      }
+    }
+
+    if (cached === INACTIVE_CHILD_SESSION) {
+      return {
+        sessionActive: false,
+        canActivate: false,
+        storedMessages: [],
+      }
+    }
+
     return {
-      sessionActive: Boolean(cached),
+      sessionActive: true,
       canActivate: false,
-      state: cached ?? undefined,
+      state: cached,
       storedMessages: [],
     }
   }
@@ -265,7 +286,7 @@ async function resolveSessionState(
     }),
   )
   if (session.parentID != null) {
-    sessionStateCache.set(sessionID, null)
+    sessionStateCache.set(sessionID, INACTIVE_CHILD_SESSION)
     return { sessionActive: false, canActivate: false, storedMessages: [] }
   }
 
@@ -279,13 +300,13 @@ async function resolveSessionState(
   const state = extractStoredState(storedMessages)
   if (state) {
     sessionStateCache.set(sessionID, state)
-  } else if (storedMessages.length > 0) {
-    sessionStateCache.set(sessionID, null)
+  } else {
+    sessionStateCache.set(sessionID, INACTIVE_ROOT_SESSION)
   }
 
   return {
     sessionActive: Boolean(state),
-    canActivate: storedMessages.length === 0,
+    canActivate: !state,
     state: state ?? undefined,
     storedMessages,
   }
@@ -326,8 +347,6 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
             }
             activatedThisTurn = true
             sessionStateCache.set(input.sessionID, activeState)
-          } else {
-            sessionStateCache.set(input.sessionID, null)
           }
         }
 
@@ -424,7 +443,7 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
         // user-authored part, roll back activation so the next turn does a
         // clean retry instead of cementing broken state.
         if (activatedThisTurn && translationErrors.length > 0 && eligibleIndex === translationErrors.length) {
-          sessionStateCache.set(input.sessionID, null)
+          sessionStateCache.set(input.sessionID, INACTIVE_ROOT_SESSION)
           return
         }
 
