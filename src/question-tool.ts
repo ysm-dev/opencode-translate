@@ -9,8 +9,10 @@
 //   3. OpenCode publishes `question.asked`; the TUI shows the translated
 //      dialog and the user picks an option (or types a custom answer).
 //   4. `tool.execute.after` hook reverses the substitution using the
-//      snapshot we captured in step 2, so the tool output string delivered
-//      back to the LLM stays in English.
+//      snapshot we captured in step 2. Selected options are restored by
+//      label mapping; non-empty custom answers are translated like normal
+//      user messages, so the output delivered back to the LLM stays in
+//      English.
 //
 // A per-callID snapshot is kept so mapping a user-selected translated label
 // back to its original English label is deterministic.
@@ -33,6 +35,11 @@ export interface QuestionToolOutput {
   title?: string
   output?: string
   metadata?: { answers?: readonly (readonly string[])[] } | Record<string, unknown>
+}
+
+export interface RestoreQuestionOutputOptions {
+  translateCustomAnswer?: (text: string) => Promise<string>
+  onTranslationError?: (error: unknown) => Promise<void> | void
 }
 
 function cloneQuestion(q: TextRecord): TextRecord {
@@ -80,9 +87,8 @@ async function assignTranslation(
   container[key] = unwrapEchoedTextEnvelope(translated)
 }
 
-// Translate every display-facing string in `args` in parallel. Returns the
-// snapshot of the translated form so the caller can pair it with the
-// pre-translation snapshot taken with `snapshotQuestions`.
+// Translate every display-facing string in `args` in parallel. The caller can
+// snapshot the translated form afterward with `snapshotQuestions`.
 export async function translateQuestionArgs(
   args: QuestionArgs,
   translate: (text: string) => Promise<string>,
@@ -101,44 +107,61 @@ export async function translateQuestionArgs(
   await Promise.all(jobs)
 }
 
-// Given the user-selected labels (`answers`), find the matching translated
-// option and return its original English label. If no match (e.g. a custom
-// free-text answer), return the label verbatim so the LLM still sees what
-// the user actually typed.
-function restoreLabel(
+// Given a user-selected label, find the matching translated option and return
+// its original English label. If no match exists, OpenCode only gives us the
+// raw answer string, so treat non-empty text as a custom answer and translate
+// it through the same source-language -> English path as normal user messages.
+async function restoreLabel(
   selectedLabel: string,
   translatedOptions: readonly OptionRecord[],
   originalOptions: readonly OptionRecord[],
-): string {
+  options: RestoreQuestionOutputOptions,
+): Promise<string> {
   const idx = translatedOptions.findIndex((option) => option.label === selectedLabel)
-  if (idx < 0) return selectedLabel
-  return originalOptions[idx]?.label ?? selectedLabel
+  if (idx >= 0) return originalOptions[idx]?.label ?? selectedLabel
+  if (!options.translateCustomAnswer || selectedLabel.trim().length === 0) return selectedLabel
+
+  try {
+    const translated = await options.translateCustomAnswer(selectedLabel)
+    return unwrapEchoedTextEnvelope(translated)
+  } catch (error) {
+    await options.onTranslationError?.(error)
+    return selectedLabel
+  }
 }
 
 // Reconstruct the exact output string the question tool would have produced
 // if it had been called with the original English args. Mirrors the format
 // in `packages/opencode/src/tool/question.ts` (as of opencode 1.14.x).
-export function buildRestoredOutput(
+export async function buildRestoredOutput(
   original: readonly TextRecord[],
   translated: readonly TextRecord[],
   answers: readonly (readonly string[])[],
-): string {
-  const formatted = original
-    .map((q, i) => {
+  options: RestoreQuestionOutputOptions = {},
+): Promise<string> {
+  const formattedParts = await Promise.all(
+    original.map(async (q, i) => {
       const selected = answers[i] ?? []
       const translatedOptions = translated[i]?.options ?? []
       const originalOptions = q.options
-      const restored = selected.map((label) => restoreLabel(label, translatedOptions, originalOptions))
+      const restored = await Promise.all(
+        selected.map((label) => restoreLabel(label, translatedOptions, originalOptions, options)),
+      )
       const rendered = restored.length > 0 ? restored.join(", ") : "Unanswered"
       return `"${q.question}"="${rendered}"`
-    })
-    .join(", ")
+    }),
+  )
+  const formatted = formattedParts.join(", ")
   return `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`
 }
 
-export function restoreQuestionOutput(output: QuestionToolOutput, snapshot: QuestionSnapshot): void {
+export async function restoreQuestionOutput(
+  output: QuestionToolOutput,
+  snapshot: QuestionSnapshot,
+  options: RestoreQuestionOutputOptions = {},
+): Promise<void> {
   if (typeof output.output !== "string") return
   const answersRaw = (output.metadata as { answers?: readonly (readonly string[])[] } | undefined)?.answers
   const answers = Array.isArray(answersRaw) ? answersRaw : []
-  output.output = buildRestoredOutput(snapshot.original, snapshot.translated, answers)
+  output.output = await buildRestoredOutput(snapshot.original, snapshot.translated, answers, options)
 }

@@ -59,7 +59,8 @@ parts (line 188) — are explicitly out of scope in v1 (see §5.3, §16).
   `displayLanguage` via a `tool.execute.before` hook so the TUI dialog
   renders in the user's language. The tool output string returned to the
   main LLM is deterministically restored to English in `tool.execute.after`
-  (see §6.7). MCP tools are not translated.
+  (including inbound translation of non-empty custom answers; see §6.7).
+  MCP tools are not translated.
 - No translation of reasoning ("thinking") parts.
 - No translation inside subagent (task tool) sessions.
 - **No enforcement of English-only on the title generation path.** The
@@ -936,13 +937,13 @@ Flow:
    payload in English.
 2. The plugin's `tool.execute.before` handler filters on
    `input.tool === "question"` and, if the session has active
-   translation state and `translate_display_lang !== LLM_LANGUAGE`:
+   translation state:
    - Takes a deep-clone snapshot of the English args.
-   - Translates `question`, `header`, and every option's `label` and
-     `description` to `displayLanguage` **in parallel** via the same
-     translator instance used for chat text. Each string goes through
-     the normal `src/translator.ts` path (placeholder protection,
-      retry/backoff, 180s timeout).
+   - If `translate_display_lang !== LLM_LANGUAGE`, translates `question`,
+     `header`, and every option's `label` and `description` to
+     `displayLanguage` **in parallel** via the same translator instance
+     used for chat text. Each string goes through the normal
+     `src/translator.ts` path (retry/backoff, 180s timeout).
    - Stores `{ original, translated }` keyed by `input.callID`.
 3. The tool then executes with the mutated args. When it publishes the
    `question.asked` bus event, the TUI renders the translated dialog
@@ -953,10 +954,11 @@ Flow:
    output string the tool would have produced if it had been called
    with the original English args:
    - For each user-selected label, look up the index in
-     `snapshot.translated[i].options` and return
-     `snapshot.original[i].options[idx].label`. Free-text (custom)
-     answers that don't match any translated label are passed through
-     verbatim.
+      `snapshot.translated[i].options` and return
+      `snapshot.original[i].options[idx].label`.
+   - Non-empty free-text (custom) answers that don't match any translated
+     label are translated through the same inbound path as user messages:
+     `sourceLanguage -> en`, `direction: "inbound"`.
    - Output is rewritten to the exact format from
      `packages/opencode/src/tool/question.ts:31-37`:
      `User has answered your questions: "{q}"="{labels}". You can now continue with the user's answers in mind.`
@@ -969,6 +971,9 @@ Failure modes:
   English snapshot and skips storing the callID. The TUI sees the
   original English dialog and `tool.execute.after` becomes a no-op for
   that call. Hooks never throw (§6.5).
+- If custom-answer translation fails at step 5, the error is logged and
+  that answer falls back to the raw typed text while the rest of the
+  output is still restored.
 - MCP tools are not intercepted: the `input.tool` filter is a strict
   equality check against `"question"` only.
 

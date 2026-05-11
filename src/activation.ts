@@ -555,35 +555,36 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
     },
     // Translate the built-in `question` tool so the TUI dialog renders in
     // the user's displayLanguage. The tool output string is restored back
-    // to English in `tool.execute.after` so the main LLM context stays
-    // English-only.
+    // to English in `tool.execute.after`; typed custom answers also go
+    // through the inbound user-message translation path.
     "tool.execute.before": async (input, output) => {
       try {
         if (input.tool !== QUESTION_TOOL_ID) return
         const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
         const activeState = resolved.state
         if (!activeState) return
-        if (activeState.translate_display_lang === LLM_LANGUAGE) return
 
         const args = output.args as unknown
         if (!isQuestionArgs(args)) return
 
         const original = snapshotQuestions(args)
-        try {
-          await translateQuestionArgs(args, (text) =>
-            translator.translateText({
-              text,
-              sourceLanguage: LLM_LANGUAGE,
-              targetLanguage: activeState.translate_display_lang,
-              direction: "outbound",
-            }),
-          )
-        } catch (error) {
-          // Translation failed: restore the originals so the dialog at least
-          // renders in English instead of a half-translated mess.
-          args.questions.splice(0, args.questions.length, ...snapshotQuestions({ questions: original }))
-          await logError(client, error)
-          return
+        if (activeState.translate_display_lang !== LLM_LANGUAGE) {
+          try {
+            await translateQuestionArgs(args, (text) =>
+              translator.translateText({
+                text,
+                sourceLanguage: LLM_LANGUAGE,
+                targetLanguage: activeState.translate_display_lang,
+                direction: "outbound",
+              }),
+            )
+          } catch (error) {
+            // Translation failed: restore the originals so the dialog at least
+            // renders in English instead of a half-translated mess.
+            args.questions.splice(0, args.questions.length, ...snapshotQuestions({ questions: original }))
+            await logError(client, error)
+            return
+          }
         }
 
         const translated = snapshotQuestions(args)
@@ -598,7 +599,32 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
         const snapshot = questionSnapshots.get(input.callID)
         if (!snapshot) return
         questionSnapshots.delete(input.callID)
-        restoreQuestionOutput(output as QuestionToolOutput, snapshot)
+        const resolved = await resolveSessionState(client, ctx.directory, input.sessionID)
+        const activeState = resolved.state
+        const translateCustomAnswer =
+          activeState && activeState.translate_source_lang !== LLM_LANGUAGE
+            ? (text: string) =>
+                translator.translateText({
+                  text,
+                  sourceLanguage: activeState.translate_source_lang,
+                  targetLanguage: LLM_LANGUAGE,
+                  direction: "inbound",
+                })
+            : undefined
+
+        await restoreQuestionOutput(output as QuestionToolOutput, snapshot, {
+          ...(translateCustomAnswer ? { translateCustomAnswer } : {}),
+          onTranslationError: async (error) => {
+            if (!activeState) {
+              await logError(client, error)
+              return
+            }
+            await logError(
+              client,
+              buildInboundTranslationError(activeState.translate_source_lang, normalizeReason(error)),
+            )
+          },
+        })
       } catch (error) {
         await logError(client, error)
       }

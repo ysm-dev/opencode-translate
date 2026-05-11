@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import { __resetActivationCacheForTest, createHooks } from "../src/activation"
-import type { PluginClientLike } from "../src/constants"
+import type { PluginClientLike, TranslateState } from "../src/constants"
 import {
   buildRestoredOutput,
   isQuestionArgs,
@@ -10,7 +10,16 @@ import {
   translateQuestionArgs,
 } from "../src/question-tool"
 
-function fakeClient(): PluginClientLike {
+function fakeClient(state: Partial<TranslateState> = {}): PluginClientLike {
+  const translateState = {
+    translate_enabled: true,
+    translate_source_lang: "ko",
+    translate_display_lang: "ko",
+    translate_llm_lang: "en",
+    translate_nonce: "a".repeat(32),
+    ...state,
+  }
+
   return {
     session: {
       get: async () => ({ data: { id: "ses_1", parentID: null } }),
@@ -28,11 +37,7 @@ function fakeClient(): PluginClientLike {
                 synthetic: false,
                 ignored: true,
                 metadata: {
-                  translate_enabled: true,
-                  translate_source_lang: "ko",
-                  translate_display_lang: "ko",
-                  translate_llm_lang: "en",
-                  translate_nonce: "a".repeat(32),
+                  ...translateState,
                   translate_role: "activation_banner",
                 },
               },
@@ -99,20 +104,27 @@ describe("question-tool helpers", () => {
     expect(args.questions[0].options[1].description).toBe("[ko]Keep the file.")
   })
 
-  test("buildRestoredOutput reconstructs the English output from a Korean answer", () => {
+  test("buildRestoredOutput reconstructs the English output from a Korean answer", async () => {
     const original = snapshotQuestions(sampleArgs)
     const translated = snapshotQuestions(sampleArgs)
     translated[0].question = "확실합니까?"
     translated[0].options[0].label = "예, 삭제"
     translated[0].options[1].label = "아니오, 취소"
+    const translatedCustomAnswers: string[] = []
 
-    const out = buildRestoredOutput(original, translated, [["예, 삭제"]])
+    const out = await buildRestoredOutput(original, translated, [["예, 삭제"]], {
+      translateCustomAnswer: async (text) => {
+        translatedCustomAnswers.push(text)
+        return `EN:${text}`
+      },
+    })
     expect(out).toBe(
       'User has answered your questions: "Are you sure?"="Yes, delete". You can now continue with the user\'s answers in mind.',
     )
+    expect(translatedCustomAnswers).toEqual([])
   })
 
-  test("buildRestoredOutput preserves free-text custom answers verbatim", () => {
+  test("buildRestoredOutput preserves free-text custom answers verbatim without a translator", async () => {
     const original = snapshotQuestions(sampleArgs)
     const translated = snapshotQuestions(sampleArgs)
     translated[0].question = "확실합니까?"
@@ -120,26 +132,52 @@ describe("question-tool helpers", () => {
     translated[0].options[1].label = "아니오, 취소"
 
     // User typed something that isn't one of the translated option labels.
-    const out = buildRestoredOutput(original, translated, [["직접 입력한 답변"]])
+    const out = await buildRestoredOutput(original, translated, [["직접 입력한 답변"]])
     expect(out).toContain('"Are you sure?"="직접 입력한 답변"')
   })
 
-  test("buildRestoredOutput renders Unanswered for an empty answer array", () => {
+  test("buildRestoredOutput translates non-empty free-text custom answers", async () => {
     const original = snapshotQuestions(sampleArgs)
     const translated = snapshotQuestions(sampleArgs)
     translated[0].question = "확실합니까?"
+    translated[0].options[0].label = "예, 삭제"
+    translated[0].options[1].label = "아니오, 취소"
+    const seen: string[] = []
 
-    const out = buildRestoredOutput(original, translated, [[]])
-    expect(out).toContain('"Are you sure?"="Unanswered"')
+    const out = await buildRestoredOutput(original, translated, [["직접 입력한 답변"]], {
+      translateCustomAnswer: async (text) => {
+        seen.push(text)
+        return `<text>\nEN:${text}\n</text>`
+      },
+    })
+
+    expect(seen).toEqual(["직접 입력한 답변"])
+    expect(out).toContain('"Are you sure?"="EN:직접 입력한 답변"')
   })
 
-  test("restoreQuestionOutput no-ops when output.output is missing", () => {
+  test("buildRestoredOutput renders Unanswered for an empty answer array", async () => {
+    const original = snapshotQuestions(sampleArgs)
+    const translated = snapshotQuestions(sampleArgs)
+    translated[0].question = "확실합니까?"
+    let calls = 0
+
+    const out = await buildRestoredOutput(original, translated, [[]], {
+      translateCustomAnswer: async (text) => {
+        calls += 1
+        return `EN:${text}`
+      },
+    })
+    expect(out).toContain('"Are you sure?"="Unanswered"')
+    expect(calls).toBe(0)
+  })
+
+  test("restoreQuestionOutput no-ops when output.output is missing", async () => {
     const snapshot = { original: snapshotQuestions(sampleArgs), translated: snapshotQuestions(sampleArgs) }
     const out: { title: string; metadata: { answers: string[][] } } = {
       title: "Asked 1 question",
       metadata: { answers: [["Yes, delete"]] },
     }
-    restoreQuestionOutput(out as never, snapshot)
+    await restoreQuestionOutput(out as never, snapshot)
     expect((out as unknown as { output?: string }).output).toBeUndefined()
   })
 })
@@ -209,7 +247,7 @@ describe("tool.execute hooks", () => {
 
   test("tool.execute.before is a no-op when displayLanguage equals English", async () => {
     const hooks = createHooks(
-      { client: fakeClient(), directory: "/workspace" } as never,
+      { client: fakeClient({ translate_display_lang: "en" }), directory: "/workspace" } as never,
       { sourceLanguage: "ko", displayLanguage: "en" },
       {
         translator: {
@@ -254,6 +292,81 @@ describe("tool.execute hooks", () => {
     expect(afterOutput.output).toBe(
       'User has answered your questions: "Are you sure?"="Yes, delete". You can now continue with the user\'s answers in mind.',
     )
+  })
+
+  test("tool.execute.after translates free-text custom answers before restoring output", async () => {
+    const calls: string[] = []
+    const hooks = createHooks(
+      { client: fakeClient(), directory: "/workspace" } as never,
+      { sourceLanguage: "ko", displayLanguage: "ko" },
+      {
+        translator: {
+          translateText: async ({ text, direction }) => {
+            calls.push(`${direction}:${text}`)
+            return direction === "outbound" ? `[ko]${text}` : `EN:${text}`
+          },
+        },
+      },
+    )
+
+    const args: QuestionArgs = JSON.parse(JSON.stringify(sampleArgs))
+    await hooks["tool.execute.before"]!({ tool: "question", sessionID: "ses_1", callID: "call_custom" }, {
+      args,
+    } as never)
+
+    const afterOutput = {
+      title: "Asked 1 question",
+      output: `User has answered your questions: "[ko]Are you sure?"="직접 입력한 답변". You can now continue with the user's answers in mind.`,
+      metadata: { answers: [["직접 입력한 답변"]] },
+    }
+
+    await hooks["tool.execute.after"]!(
+      { tool: "question", sessionID: "ses_1", callID: "call_custom", args },
+      afterOutput as never,
+    )
+
+    expect(afterOutput.output).toBe(
+      'User has answered your questions: "Are you sure?"="EN:직접 입력한 답변". You can now continue with the user\'s answers in mind.',
+    )
+    expect(calls).toContain("inbound:직접 입력한 답변")
+  })
+
+  test("tool.execute.after translates custom answers even when question display is English", async () => {
+    const calls: string[] = []
+    const hooks = createHooks(
+      { client: fakeClient({ translate_display_lang: "en" }), directory: "/workspace" } as never,
+      { sourceLanguage: "ko", displayLanguage: "en" },
+      {
+        translator: {
+          translateText: async ({ text, direction }) => {
+            calls.push(`${direction}:${text}`)
+            return `EN:${text}`
+          },
+        },
+      },
+    )
+
+    const args: QuestionArgs = JSON.parse(JSON.stringify(sampleArgs))
+    await hooks["tool.execute.before"]!({ tool: "question", sessionID: "ses_1", callID: "call_display_en" }, {
+      args,
+    } as never)
+    expect(args.questions[0].question).toBe("Are you sure?")
+
+    const afterOutput = {
+      title: "Asked 1 question",
+      output: `User has answered your questions: "Are you sure?"="직접 입력한 답변". You can now continue with the user's answers in mind.`,
+      metadata: { answers: [["직접 입력한 답변"]] },
+    }
+
+    await hooks["tool.execute.after"]!(
+      { tool: "question", sessionID: "ses_1", callID: "call_display_en", args },
+      afterOutput as never,
+    )
+
+    expect(afterOutput.output).toBe(
+      'User has answered your questions: "Are you sure?"="EN:직접 입력한 답변". You can now continue with the user\'s answers in mind.',
+    )
+    expect(calls).toEqual(["inbound:직접 입력한 답변"])
   })
 
   test("tool.execute.after swallows translator errors from the before hook and leaves args English", async () => {
