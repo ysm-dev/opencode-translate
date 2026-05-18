@@ -1,0 +1,4 @@
+[test]
+coveragePathIgnorePatterns = ["test/**"]
+coverageSkipTestFiles = true
+coverageThreshold = 0.95

@@ -13,5 +13,3 @@ const DISPLAY_LANGUAGE_LABELS: Record<string, string> = {
 export function getDisplayLanguageLabel(displayLanguage: string): string {
   return DISPLAY_LANGUAGE_LABELS[displayLanguage] ?? `Translation (${displayLanguage})`
 }
-
-export { DISPLAY_LANGUAGE_LABELS }

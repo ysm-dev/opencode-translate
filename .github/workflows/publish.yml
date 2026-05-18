@@ -75,9 +75,9 @@ jobs:
         if: steps.check.outputs.already_published == 'false'
         run: bun run typecheck
 
-      - name: Test
+      - name: Test with coverage
         if: steps.check.outputs.already_published == 'false'
-        run: bun test
+        run: bun run test:coverage
 
       # Uses npm OIDC trusted publishing (no NPM_TOKEN).
       # Requires npm >= 11.5.1. Node 24 ships with npm 11.x; if the default

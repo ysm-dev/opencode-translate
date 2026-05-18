@@ -72,6 +72,17 @@ describe("anthropic-oauth", () => {
     expect(system.at(-1)?.text).toBe("translator prompt")
   })
 
+  test("buildOAuthSystem normalizes object and mixed-array system blocks", () => {
+    const objectSystem = buildOAuthSystem({ cache_control: { type: "ephemeral" } }, undefined)
+    expect(objectSystem[2]).toEqual({ cache_control: { type: "ephemeral" }, type: "text", text: "" })
+
+    const arraySystem = buildOAuthSystem(["plain", { text: "typed" }, { type: "image" }, 123], undefined)
+    expect(arraySystem.slice(2)).toEqual([
+      { type: "text", text: "plain" },
+      { text: "typed", type: "text" },
+    ])
+  })
+
   test("buildBillingHeaderValue is deterministic for the same first user message", () => {
     const messages = [{ role: "user", content: "Translate: 안녕" }]
     const a = buildBillingHeaderValue(messages)
@@ -79,6 +90,16 @@ describe("anthropic-oauth", () => {
     expect(a).toBe(b)
     expect(a).toContain("cc_entrypoint=sdk-cli")
     expect(a).toContain("cch=")
+  })
+
+  test("buildBillingHeaderValue extracts the first text block from array content", () => {
+    const value = buildBillingHeaderValue([
+      { role: "assistant", content: "ignored" },
+      { role: "user", content: [{ type: "image" }, { type: "text", text: "Translate this" }] },
+    ])
+
+    expect(value).toBe(buildBillingHeaderValue([{ role: "user", content: "Translate this" }]))
+    expect(buildBillingHeaderValue(undefined)).toContain("cch=")
   })
 
   test("rewriteMessagesBody rewrites system[] and preserves model/messages", () => {

@@ -22,10 +22,10 @@ import { createHash } from "node:crypto"
 
 export const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK."
 
-export const REQUIRED_BETAS = ["oauth-2025-04-20", "interleaved-thinking-2025-05-14"] as const
+const REQUIRED_BETAS = ["oauth-2025-04-20", "interleaved-thinking-2025-05-14"] as const
 
-export const CLAUDE_CODE_VERSION = "2.1.87"
-export const CLAUDE_CODE_ENTRYPOINT = "sdk-cli"
+const CLAUDE_CODE_VERSION = "2.1.87"
+const CLAUDE_CODE_ENTRYPOINT = "sdk-cli"
 export const CLAUDE_CLI_USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`
 
 // Deterministic billing header parameters — must match Claude Code's own derivation.
