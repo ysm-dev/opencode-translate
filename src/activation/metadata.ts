@@ -16,8 +16,7 @@ export function extractStateFromMetadata(metadata: StoredTextMetadata | undefine
   if (!isTranslateStateRecord(metadata)) return undefined
   return {
     translate_enabled: true,
-    translate_source_lang: metadata.translate_source_lang,
-    translate_display_lang: metadata.translate_display_lang,
+    translate_user_lang: metadata.translate_user_lang,
     translate_llm_lang: LLM_LANGUAGE,
     translate_nonce: metadata.translate_nonce,
   }

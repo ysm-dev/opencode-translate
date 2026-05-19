@@ -1,7 +1,14 @@
-import { AUTH_ENV_FALLBACK, DEFAULT_TRANSLATOR_MODEL, DEFAULT_TRIGGER_KEYWORDS } from "./plugin"
+import { AUTH_ENV_FALLBACK, DEFAULT_TRANSLATOR_MODEL, DEFAULT_TRIGGER_KEYWORDS, PLUGIN_NAME } from "./plugin"
 import type { ProviderInfo, ResolvedTranslateOptions } from "./types"
 
 export function resolveOptions(options: Record<string, unknown>): ResolvedTranslateOptions {
+  const lang = typeof options.lang === "string" ? options.lang.trim() : ""
+  if (!lang) {
+    throw new Error(
+      `[${PLUGIN_NAME}:INVALID_OPTIONS] options.lang is required. Set it to the user's language, e.g. "Korean" or "Japanese".`,
+    )
+  }
+
   const triggerKeywords = Array.isArray(options.triggerKeywords)
     ? options.triggerKeywords.filter((value): value is string => typeof value === "string" && value.length > 0)
     : DEFAULT_TRIGGER_KEYWORDS
@@ -12,10 +19,7 @@ export function resolveOptions(options: Record<string, unknown>): ResolvedTransl
         ? options.translatorModel
         : DEFAULT_TRANSLATOR_MODEL,
     triggerKeywords: triggerKeywords.length > 0 ? triggerKeywords : [...DEFAULT_TRIGGER_KEYWORDS],
-    sourceLanguage:
-      typeof options.sourceLanguage === "string" && options.sourceLanguage.trim() ? options.sourceLanguage : "en",
-    displayLanguage:
-      typeof options.displayLanguage === "string" && options.displayLanguage.trim() ? options.displayLanguage : "en",
+    lang,
     apiKey: typeof options.apiKey === "string" && options.apiKey.length > 0 ? options.apiKey : undefined,
     verbose: options.verbose === true,
   }

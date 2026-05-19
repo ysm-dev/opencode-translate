@@ -13,7 +13,7 @@ describe("activation chat.message", () => {
     let calls = 0
     const hooks = createHooks(
       { client: fakeClient([storedMessage([textPart("old", "previous message")])]), directory: "/workspace" } as never,
-      { sourceLanguage: "ko", displayLanguage: "ko" },
+      { lang: "Korean" },
       {
         translator: {
           translateText: async ({ text }) => {
@@ -43,7 +43,7 @@ describe("activation chat.message", () => {
     let calls = 0
     const hooks = createHooks(
       { client: fakeClient([], "ses_parent"), directory: "/workspace" } as never,
-      { sourceLanguage: "ko", displayLanguage: "ko" },
+      { lang: "Korean" },
       {
         translator: {
           translateText: async ({ text }) => {
@@ -76,7 +76,7 @@ describe("activation chat.message", () => {
         ]),
         directory: "/workspace",
       } as never,
-      { sourceLanguage: "ko", displayLanguage: "ko" },
+      { lang: "Korean" },
       {
         translator: {
           translateText: async ({ text }) => {
@@ -105,7 +105,7 @@ describe("activation chat.message", () => {
     let calls = 0
     const hooks = createHooks(
       { client: fakeClient([storedMessage([textPart("old", "previous")])]), directory: "/workspace" } as never,
-      { sourceLanguage: "ko", displayLanguage: "ko" },
+      { lang: "Korean" },
       {
         translator: {
           translateText: async ({ text }) => {

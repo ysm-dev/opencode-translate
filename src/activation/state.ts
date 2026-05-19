@@ -29,8 +29,7 @@ export function cacheSessionState(sessionID: string, state: CachedSessionState) 
 export function createState(options: ResolvedTranslateOptions): TranslateState {
   return {
     translate_enabled: true,
-    translate_source_lang: options.sourceLanguage,
-    translate_display_lang: options.displayLanguage,
+    translate_user_lang: options.lang,
     translate_llm_lang: LLM_LANGUAGE,
     translate_nonce: randomBytes(16).toString("hex"),
   }

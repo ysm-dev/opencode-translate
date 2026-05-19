@@ -1,6 +1,6 @@
 export const PLUGIN_NAME = "opencode-translate"
-export const SPEC_VERSION = 1
-export const LLM_LANGUAGE = "en"
+export const SPEC_VERSION = 2
+export const LLM_LANGUAGE = "English"
 export const DEFAULT_TRANSLATOR_MODEL = "anthropic/claude-haiku-4-5"
 export const DEFAULT_TRIGGER_KEYWORDS = ["$en"]
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"

@@ -8,8 +8,7 @@ function testOptions(overrides: Record<string, unknown> = {}) {
   return {
     translatorModel: "anthropic/claude-haiku-4-5",
     triggerKeywords: ["$en"],
-    sourceLanguage: "ko",
-    displayLanguage: "ko",
+    lang: "Korean",
     verbose: false,
     ...overrides,
   }
@@ -47,8 +46,8 @@ test("retry succeeds after one transient failure", async () => {
 
   const translated = await translator.translateText({
     text: "안녕",
-    sourceLanguage: "ko",
-    targetLanguage: "en",
+    sourceLanguage: "Korean",
+    targetLanguage: "English",
     direction: "inbound",
   })
   expect(translated).toBe("hello")
@@ -77,13 +76,18 @@ test("retry can use the default zero-delay sleeper", async () => {
   })
 
   await expect(
-    translator.translateText({ text: "안녕", sourceLanguage: "ko", targetLanguage: "en", direction: "inbound" }),
+    translator.translateText({
+      text: "안녕",
+      sourceLanguage: "Korean",
+      targetLanguage: "English",
+      direction: "inbound",
+    }),
   ).resolves.toBe("hello")
   expect(calls).toBe(2)
 })
 
 test("unwraps echoed text envelope from translator output", async () => {
-  const translator = createTranslator(fakeClient([]), testOptions({ sourceLanguage: "en" }), {
+  const translator = createTranslator(fakeClient([]), testOptions({ lang: "English" }), {
     credentialResolver: {
       resolve: async () => ({ providerID: "anthropic", apiKey: "test-key", mode: "apiKey" as const }),
       isMissingCredentialError: () => false,
@@ -96,8 +100,8 @@ test("unwraps echoed text envelope from translator output", async () => {
 
   const translated = await translator.translateText({
     text: "Hello",
-    sourceLanguage: "en",
-    targetLanguage: "ko",
+    sourceLanguage: "English",
+    targetLanguage: "Korean",
     direction: "outbound",
   })
   expect(translated).toBe("안녕하세요")
@@ -119,7 +123,12 @@ test("OpenAI reasoning translators omit unsupported temperature", async () => {
     sleep: async () => undefined,
   })
 
-  await translator.translateText({ text: "안녕", sourceLanguage: "ko", targetLanguage: "en", direction: "inbound" })
+  await translator.translateText({
+    text: "안녕",
+    sourceLanguage: "Korean",
+    targetLanguage: "English",
+    direction: "inbound",
+  })
   expect(request?.temperature).toBeUndefined()
 })
 
@@ -142,7 +151,12 @@ test("missing credentials surface the exact auth-unavailable error", async () =>
   })
 
   await expect(
-    translator.translateText({ text: "안녕", sourceLanguage: "ko", targetLanguage: "en", direction: "inbound" }),
+    translator.translateText({
+      text: "안녕",
+      sourceLanguage: "Korean",
+      targetLanguage: "English",
+      direction: "inbound",
+    }),
   ).rejects.toThrow(
     '[opencode-translate:AUTH_UNAVAILABLE] No credential found for provider "anthropic". Set ANTHROPIC_API_KEY in the environment, run "opencode auth login anthropic", or set options.apiKey in opencode.json.',
   )
@@ -166,7 +180,7 @@ test("OpenAI OAuth translator requests are Codex-compatible", async () => {
       }),
     },
   }
-  const options = resolveOptions({ translatorModel: "openai/gpt-5.5", sourceLanguage: "ko", displayLanguage: "ko" })
+  const options = resolveOptions({ translatorModel: "openai/gpt-5.5", lang: "Korean" })
   let finalUrl = ""
   let finalBody = ""
   const credentialResolver = createCredentialResolver(client, options, {
@@ -188,8 +202,8 @@ test("OpenAI OAuth translator requests are Codex-compatible", async () => {
   try {
     const translated = await translator.translateText({
       text: "안녕",
-      sourceLanguage: "ko",
-      targetLanguage: "en",
+      sourceLanguage: "Korean",
+      targetLanguage: "English",
       direction: "inbound",
     })
     const parsed = JSON.parse(finalBody) as Record<string, unknown>
@@ -233,7 +247,12 @@ test("verbose translation logs timing and character metadata", async () => {
   })
 
   await expect(
-    translator.translateText({ text: "안녕", sourceLanguage: "ko", targetLanguage: "en", direction: "inbound" }),
+    translator.translateText({
+      text: "안녕",
+      sourceLanguage: "Korean",
+      targetLanguage: "English",
+      direction: "inbound",
+    }),
   ).resolves.toBe("hello")
   expect(logs).toEqual([
     {
@@ -268,6 +287,11 @@ test("translator requests are bounded by the configured timeout", async () => {
   })
 
   await expect(
-    translator.translateText({ text: "안녕", sourceLanguage: "ko", targetLanguage: "en", direction: "inbound" }),
+    translator.translateText({
+      text: "안녕",
+      sourceLanguage: "Korean",
+      targetLanguage: "English",
+      direction: "inbound",
+    }),
   ).rejects.toThrow("Translator generateText timed out after 1ms")
 })

@@ -4,7 +4,7 @@
 //   1. Agent (main LLM, English-only) invokes the `question` tool with an
 //      `args.questions[]` payload in English.
 //   2. `tool.execute.before` hook translates each question's text, header,
-//      and every option's label + description into `displayLanguage` so the
+//      and every option's label + description into the configured `lang` so the
 //      question prompt renders in the user's language.
 //   3. OpenCode publishes `question.asked`; the TUI shows the translated
 //      dialog and the user picks an option (or types a custom answer).

@@ -15,9 +15,8 @@ export function textPart(id: string, text: string, extra: Partial<TextPartLike> 
 export function activeStateMetadata(text: string) {
   return {
     translate_enabled: true,
-    translate_source_lang: "ko",
-    translate_display_lang: "ko",
-    translate_llm_lang: "en",
+    translate_user_lang: "Korean",
+    translate_llm_lang: "English",
     translate_nonce: "0123456789abcdef0123456789abcdef",
     translate_source_hash: hashText(text),
     translate_en: `EN:${text}`,

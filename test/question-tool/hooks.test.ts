@@ -9,7 +9,7 @@ beforeEach(() => {
 test("tool.execute.before translates question args when state is active", async () => {
   const hooks = createHooks(
     { client: fakeClient(), directory: "/workspace" } as never,
-    { sourceLanguage: "ko", displayLanguage: "ko" },
+    { lang: "Korean" },
     { translator: { translateText: async ({ text }) => `[ko]${text}` } },
   )
 
@@ -22,7 +22,7 @@ test("tool.execute.before translates question args when state is active", async 
 test("tool.execute.before removes echoed text envelope from translated question args", async () => {
   const hooks = createHooks(
     { client: fakeClient(), directory: "/workspace" } as never,
-    { sourceLanguage: "ko", displayLanguage: "ko" },
+    { lang: "Korean" },
     { translator: { translateText: async ({ text }) => `<text>\n[ko]${text}\n</text>` } },
   )
 
@@ -35,10 +35,10 @@ test("tool.execute.before removes echoed text envelope from translated question 
   expect(args.questions[0].question).not.toContain("<text>")
 })
 
-test("tool.execute.before no-ops for non-question tools and English display", async () => {
+test("tool.execute.before no-ops for non-question tools and English language", async () => {
   const nonQuestionHooks = createHooks(
     { client: fakeClient(), directory: "/workspace" } as never,
-    { sourceLanguage: "ko", displayLanguage: "ko" },
+    { lang: "Korean" },
     {
       translator: {
         translateText: async () => {
@@ -54,8 +54,8 @@ test("tool.execute.before no-ops for non-question tools and English display", as
   expect(nonQuestionArgs).toEqual({ command: "ls -la" })
 
   const englishHooks = createHooks(
-    { client: fakeClient({ translate_display_lang: "en" }), directory: "/workspace" } as never,
-    { sourceLanguage: "ko", displayLanguage: "en" },
+    { client: fakeClient({ translate_user_lang: "English" }), directory: "/workspace" } as never,
+    { lang: "English" },
     {
       translator: {
         translateText: async () => {
@@ -74,7 +74,7 @@ test("tool.execute.before no-ops for non-question tools and English display", as
 test("tool.execute.after restores the English output string", async () => {
   const hooks = createHooks(
     { client: fakeClient(), directory: "/workspace" } as never,
-    { sourceLanguage: "ko", displayLanguage: "ko" },
+    { lang: "Korean" },
     { translator: { translateText: async ({ text }) => `[ko]${text}` } },
   )
 
@@ -99,7 +99,7 @@ test("tool.execute.after translates free-text custom answers", async () => {
   const calls: string[] = []
   const hooks = createHooks(
     { client: fakeClient(), directory: "/workspace" } as never,
-    { sourceLanguage: "ko", displayLanguage: "ko" },
+    { lang: "Korean" },
     {
       translator: {
         translateText: async ({ text, direction }) => {
@@ -128,16 +128,16 @@ test("tool.execute.after translates free-text custom answers", async () => {
   expect(calls).toContain("inbound:직접 입력한 답변")
 })
 
-test("tool.execute.after translates custom answers even when question display is English", async () => {
+test("tool.execute.after does not translate custom answers when language is English", async () => {
   const calls: string[] = []
   const hooks = createHooks(
-    { client: fakeClient({ translate_display_lang: "en" }), directory: "/workspace" } as never,
-    { sourceLanguage: "ko", displayLanguage: "en" },
+    { client: fakeClient({ translate_user_lang: "English" }), directory: "/workspace" } as never,
+    { lang: "English" },
     {
       translator: {
         translateText: async ({ text, direction }) => {
           calls.push(`${direction}:${text}`)
-          return `EN:${text}`
+          return `translated:${text}`
         },
       },
     },
@@ -149,22 +149,22 @@ test("tool.execute.after translates custom answers even when question display is
   } as never)
   const afterOutput = {
     title: "Asked 1 question",
-    output: `User has answered your questions: "Are you sure?"="직접 입력한 답변". You can now continue with the user's answers in mind.`,
-    metadata: { answers: [["직접 입력한 답변"]] },
+    output: `User has answered your questions: "Are you sure?"="custom answer". You can now continue with the user's answers in mind.`,
+    metadata: { answers: [["custom answer"]] },
   }
 
   await hooks["tool.execute.after"]!(
     { tool: "question", sessionID: "ses_1", callID: "call_display_en", args },
     afterOutput as never,
   )
-  expect(afterOutput.output).toContain('"Are you sure?"="EN:직접 입력한 답변"')
-  expect(calls).toEqual(["inbound:직접 입력한 답변"])
+  expect(afterOutput.output).toContain('"Are you sure?"="custom answer"')
+  expect(calls).toEqual([])
 })
 
 test("tool.execute.after swallows before-hook translation errors and leaves args English", async () => {
   const hooks = createHooks(
     { client: fakeClient(), directory: "/workspace" } as never,
-    { sourceLanguage: "ko", displayLanguage: "ko" },
+    { lang: "Korean" },
     {
       translator: {
         translateText: async () => {
@@ -207,7 +207,7 @@ test("tool.execute.before logs state lookup failures without throwing", async ()
   }
   const hooks = createHooks(
     { client, directory: "/workspace" } as never,
-    { sourceLanguage: "ko", displayLanguage: "ko" },
+    { lang: "Korean" },
     { translator: { translateText: async ({ text }) => `[ko]${text}` } },
   )
 
@@ -235,7 +235,7 @@ test("tool.execute.after logs custom answer translation failures with source-lan
       },
       directory: "/workspace",
     } as never,
-    { sourceLanguage: "ko", displayLanguage: "ko" },
+    { lang: "Korean" },
     {
       translator: {
         translateText: async ({ text, direction }) => {
@@ -262,5 +262,7 @@ test("tool.execute.after logs custom answer translation failures with source-lan
   )
 
   expect(afterOutput.output).toContain('"Are you sure?"="직접 입력"')
-  expect(logs.at(-1)).toContain("Failed to translate user message from ko to en: custom answer translator down")
+  expect(logs.at(-1)).toContain(
+    "Failed to translate user message from Korean to English: custom answer translator down",
+  )
 })

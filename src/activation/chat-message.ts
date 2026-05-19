@@ -70,7 +70,7 @@ async function translateUserPart(
   try {
     const english = await ctx.translator.translateText({
       text: part.text,
-      sourceLanguage: state.translate_source_lang,
+      sourceLanguage: state.translate_user_lang,
       targetLanguage: LLM_LANGUAGE,
       direction: "inbound",
     })
@@ -88,7 +88,7 @@ async function translateUserPart(
   } catch (error) {
     errors.push({ part, error })
     const reason = normalizeReason(error)
-    await logError(ctx.client, buildInboundTranslationError(state.translate_source_lang, reason))
+    await logError(ctx.client, buildInboundTranslationError(state.translate_user_lang, reason))
     const originalText = part.text
     part.text = `${originalText}\n\n_⚠️ Translation failed: ${reason}. Original text was sent to the model._`
     part.ignored = true

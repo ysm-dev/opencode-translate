@@ -30,13 +30,13 @@ export function createToolExecuteBeforeHook(ctx: HookContext): NonNullable<Hooks
       if (!isQuestionArgs(args)) return
 
       const original = snapshotQuestions(args)
-      if (activeState.translate_display_lang !== LLM_LANGUAGE) {
+      if (activeState.translate_user_lang !== LLM_LANGUAGE) {
         try {
           await translateQuestionArgs(args, (text) =>
             ctx.translator.translateText({
               text,
               sourceLanguage: LLM_LANGUAGE,
-              targetLanguage: activeState.translate_display_lang,
+              targetLanguage: activeState.translate_user_lang,
               direction: "outbound",
             }),
           )
@@ -65,11 +65,11 @@ export function createToolExecuteAfterHook(ctx: HookContext): NonNullable<Hooks[
       const resolved = await resolveSessionState(ctx.client, ctx.directory, input.sessionID)
       const activeState = resolved.state
       const translateCustomAnswer =
-        activeState && activeState.translate_source_lang !== LLM_LANGUAGE
+        activeState && activeState.translate_user_lang !== LLM_LANGUAGE
           ? (text: string) =>
               ctx.translator.translateText({
                 text,
-                sourceLanguage: activeState.translate_source_lang,
+                sourceLanguage: activeState.translate_user_lang,
                 targetLanguage: LLM_LANGUAGE,
                 direction: "inbound",
               })
@@ -84,7 +84,7 @@ export function createToolExecuteAfterHook(ctx: HookContext): NonNullable<Hooks[
           }
           await logError(
             ctx.client,
-            buildInboundTranslationError(activeState.translate_source_lang, normalizeReason(error)),
+            buildInboundTranslationError(activeState.translate_user_lang, normalizeReason(error)),
           )
         },
       })

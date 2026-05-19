@@ -7,24 +7,21 @@ type ProviderSource = "env" | "config" | "custom" | "api"
 export interface ResolvedTranslateOptions {
   translatorModel: string
   triggerKeywords: string[]
-  sourceLanguage: string
-  displayLanguage: string
+  lang: string
   apiKey?: string
   verbose: boolean
 }
 
 export interface TranslateState {
   translate_enabled: true
-  translate_source_lang: string
-  translate_display_lang: string
+  translate_user_lang: string
   translate_llm_lang: typeof LLM_LANGUAGE
   translate_nonce: string
 }
 
 export interface StoredTextMetadata extends Record<string, unknown> {
   translate_enabled?: boolean
-  translate_source_lang?: string
-  translate_display_lang?: string
+  translate_user_lang?: string
   translate_llm_lang?: string
   translate_nonce?: string
   translate_role?: string

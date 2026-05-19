@@ -4,9 +4,8 @@ import type { QuestionArgs } from "../../src/question-tool"
 export function fakeClient(state: Partial<TranslateState> = {}): PluginClientLike {
   const translateState = {
     translate_enabled: true,
-    translate_source_lang: "ko",
-    translate_display_lang: "ko",
-    translate_llm_lang: "en",
+    translate_user_lang: "Korean",
+    translate_llm_lang: "English",
     translate_nonce: "a".repeat(32),
     ...state,
   }

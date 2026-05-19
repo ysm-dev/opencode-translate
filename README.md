@@ -1,15 +1,15 @@
 # opencode-translate
 
-`opencode-translate` is an OpenCode plugin that lets the user chat in a configured `sourceLanguage` while the main chat loop and compaction summariser only see English.
+`opencode-translate` is an OpenCode plugin that lets the user chat in a configured `lang` while the main chat loop and compaction summariser only see English.
 
 ## What It Does
 
 - Activates once per root session when any root-session user message contains a trigger keyword such as `$en`.
-- Translates user-authored text parts from `sourceLanguage` to English before the main LLM sees them.
+- Translates user-authored text parts from `lang` to English before the main LLM sees them.
 - Stores the original user text, plus a cached English translation in part metadata.
 - Shows a visible `→ EN: ...` preview under each translated user text part.
-- Translates assistant text parts from English into `displayLanguage` when each text part completes.
-- Translates the built-in `question` tool's question text, header, and every option's label and description into `displayLanguage` so the TUI confirmation dialog is in the user's language. The tool output string returned to the LLM is restored to English, including translation of non-empty custom answers.
+- Translates assistant text parts from English into `lang` when each text part completes.
+- Translates the built-in `question` tool's question text, header, and every option's label and description into `lang` so the TUI confirmation dialog is in the user's language. The tool output string returned to the LLM is restored to English, including translation of non-empty custom answers.
 - Stores assistant text as:
 
 ```md
@@ -18,7 +18,7 @@
 <!-- oc-translate:{nonce}:start -->
 ---
 
-**{displayLanguageLabel}:**
+**Translation ({lang}):**
 
 <translated>
 <!-- oc-translate:{nonce}:end -->
@@ -29,7 +29,7 @@
 ## v1 Limits
 
 - No mid-session toggle off.
-- No auto-detection of source or display language.
+- No auto-detection of the user's language. `lang` is required.
 - No title translation or title-path English enforcement.
 - No subagent translation.
 - No translation of tool inputs, tool outputs, or reasoning parts.
@@ -60,8 +60,7 @@ Add it to `~/.config/opencode/opencode.json`:
     ["opencode-translate", {
       "translatorModel": "anthropic/claude-haiku-4-5",
       "triggerKeywords": ["$en"],
-      "sourceLanguage": "ko",
-      "displayLanguage": "ko",
+      "lang": "Korean",
       "verbose": false
     }]
   ]
@@ -87,10 +86,11 @@ $en 프로젝트 루트의 package.json을 읽고 요약해줘
 | --- | --- | --- |
 | `translatorModel` | string | `anthropic/claude-haiku-4-5` |
 | `triggerKeywords` | string[] | `[$en]` |
-| `sourceLanguage` | string | `en` |
-| `displayLanguage` | string | `en` |
+| `lang` | string | Required |
 | `apiKey` | string | `undefined` |
 | `verbose` | boolean | `false` |
+
+Set `lang` to the full name of the language the user reads and writes, such as `"Korean"`, `"Japanese"`, or `"Brazilian Portuguese"`. The value is injected directly into translation prompts, so language code mapping is not required.
 
 ## Privacy
 
@@ -133,7 +133,7 @@ If you prefer a plain API key, set `OPENAI_API_KEY` in the environment or pass `
 
 ## Manual Smoke Test
 
-1. Install the plugin and configure `sourceLanguage: "ko"`, `displayLanguage: "ko"`.
+1. Install the plugin and configure `lang: "Korean"`.
 2. Start a new session and send `$en 프로젝트 루트의 package.json을 읽고 요약해줘`.
 3. Confirm the activation banner appears.
 4. Confirm the `→ EN: ...` preview appears under the user message.

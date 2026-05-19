@@ -25,18 +25,18 @@ export function createTextCompleteHook(ctx: HookContext): TextCompleteHook {
 
       if (message.info.role !== "assistant") return
       if (message.info.summary === true) return
-      if (activeState.translate_display_lang === LLM_LANGUAGE || output.text.length === 0) return
+      if (activeState.translate_user_lang === LLM_LANGUAGE || output.text.length === 0) return
 
       try {
         const translated = await ctx.translator.translateText({
           text: output.text,
           sourceLanguage: LLM_LANGUAGE,
-          targetLanguage: activeState.translate_display_lang,
+          targetLanguage: activeState.translate_user_lang,
           direction: "outbound",
         })
         output.text = composeTranslatedAssistantText(
           output.text,
-          getDisplayLanguageLabel(activeState.translate_display_lang),
+          getDisplayLanguageLabel(activeState.translate_user_lang),
           translated,
           activeState.translate_nonce,
         )

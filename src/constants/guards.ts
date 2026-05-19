@@ -18,8 +18,7 @@ export function isTranslateStateRecord(value: unknown): value is TranslateState 
   return (
     record.translate_enabled === true &&
     record.translate_llm_lang === LLM_LANGUAGE &&
-    isNonEmptyString(record.translate_source_lang) &&
-    isNonEmptyString(record.translate_display_lang) &&
+    isNonEmptyString(record.translate_user_lang) &&
     isNonEmptyString(record.translate_nonce) &&
     NONCE_PATTERN.test(record.translate_nonce)
   )

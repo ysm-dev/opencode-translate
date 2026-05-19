@@ -5,9 +5,9 @@ export function normalizeReason(error: unknown): string {
   return raw.split(/\r?\n/, 1)[0].trim().slice(0, 200)
 }
 
-export function buildInboundTranslationError(sourceLanguage: string, reason: string): Error {
+export function buildInboundTranslationError(userLanguage: string, reason: string): Error {
   return new Error(
-    `[${PLUGIN_NAME}:INBOUND_TRANSLATION_FAILED] Failed to translate user message from ${sourceLanguage} to en: ${reason}`,
+    `[${PLUGIN_NAME}:INBOUND_TRANSLATION_FAILED] Failed to translate user message from ${userLanguage} to English: ${reason}`,
   )
 }
 

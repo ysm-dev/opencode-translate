@@ -2,24 +2,27 @@ import { describe, expect, test } from "bun:test"
 import { getEnvVarHint, parseTranslatorModel, resolveOptions } from "../../src/constants"
 
 describe("option resolution", () => {
-  test("resolveOptions sanitizes invalid user configuration", () => {
+  test("resolveOptions sanitizes invalid optional user configuration", () => {
     expect(
       resolveOptions({
+        lang: "Korean",
         translatorModel: "missing-slash",
         triggerKeywords: ["", "$go", 123],
-        sourceLanguage: "",
-        displayLanguage: "  ",
         apiKey: "",
         verbose: "yes",
       }),
     ).toEqual({
       translatorModel: "anthropic/claude-haiku-4-5",
       triggerKeywords: ["$go"],
-      sourceLanguage: "en",
-      displayLanguage: "en",
+      lang: "Korean",
       apiKey: undefined,
       verbose: false,
     })
+  })
+
+  test("resolveOptions requires lang", () => {
+    expect(() => resolveOptions({ translatorModel: "anthropic/claude-haiku-4-5" })).toThrow("options.lang is required")
+    expect(() => resolveOptions({ lang: "  " })).toThrow("options.lang is required")
   })
 
   test("parseTranslatorModel falls back to anthropic for bare model names", () => {

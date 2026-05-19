@@ -11,7 +11,7 @@ describe("activation part ordering", () => {
   test("multi-part ordering stays exact on activation turn", async () => {
     const hooks = createHooks(
       { client: fakeClient([]), directory: "/workspace" } as never,
-      { sourceLanguage: "ko", displayLanguage: "ko", translatorModel: "anthropic/claude-haiku-4-5" },
+      { lang: "Korean", translatorModel: "anthropic/claude-haiku-4-5" },
       { translator: { translateText: async ({ text }) => `EN:${text}` } },
     )
 
@@ -38,7 +38,7 @@ describe("activation part ordering", () => {
     let calls = 0
     const hooks = createHooks(
       { client: fakeClient([]), directory: "/workspace" } as never,
-      { sourceLanguage: "ko", displayLanguage: "ko" },
+      { lang: "Korean" },
       {
         translator: {
           translateText: async ({ text }) => {
