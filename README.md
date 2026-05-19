@@ -137,7 +137,7 @@ If `model` uses OpenAI and OpenCode auth is backed by the ChatGPT/Codex OAuth fl
 
 For OAuth-backed OpenAI requests, the plugin routes the OpenAI AI SDK request to `https://chatgpt.com/backend-api/codex/responses`, adds the required Codex beta/originator headers, normalizes the request body to Codex's expected typed `input` shape, and converts Codex SSE responses back to JSON for translation calls. This supports models such as `openai/gpt-5.5` when your ChatGPT plan has access.
 
-If you prefer a plain API key, set `OPENAI_API_KEY`, use `opencode auth login openai`, or pass `apiKey` in plugin options.
+For OpenAI, an OAuth record from `opencode auth login openai` takes precedence over `OPENAI_API_KEY` and plugin `apiKey`. API keys are only used when no OpenAI OAuth record is available.
 
 ## Manual Smoke Test
 

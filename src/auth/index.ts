@@ -119,10 +119,20 @@ export function createCredentialResolver(
   async function resolve(providerModel: string): Promise<ResolvedCredential> {
     const { providerID } = parseTranslatorModel(providerModel)
     const cached = credentialCache.get(providerID)
-    if (cached) return cached
+    if (cached && providerID !== "openai") return cached
 
     const provider = await getProvider(client, providerID)
     const authInfo = await resolveAuthInfo(providerID)
+    if (providerID === "openai" && authInfo?.type === "oauth") {
+      const oauthInfo = await resolveOAuth(providerID)
+      if (oauthInfo) {
+        const resolved = credentialFromOAuth(providerID, provider, oauthInfo)
+        credentialCache.set(providerID, resolved)
+        return resolved
+      }
+    }
+    if (cached && !(providerID === "openai" && cached.mode === "oauth" && authInfo?.type !== "oauth")) return cached
+
     if (options.apiKey) {
       const resolved = { providerID, provider, authInfo, apiKey: options.apiKey, mode: "apiKey" as const }
       credentialCache.set(providerID, resolved)

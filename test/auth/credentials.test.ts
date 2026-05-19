@@ -98,6 +98,105 @@ describe("auth credentials", () => {
     expect(typeof resolved.fetch).toBe("function")
   })
 
+  test("OpenAI OAuth auth wins over explicit and resolved API keys", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      openai: { type: "oauth", access: "access-token", refresh: "refresh-token", expires: Date.now() + 3600_000 },
+    })
+
+    const resolver = createCredentialResolver(
+      fakeClient([{ id: "openai", source: "env", env: ["OPENAI_API_KEY"], key: "provider-key" }]),
+      resolveOptions({ model: "openai/gpt-5.5", apiKey: "explicit-key", lang: "Korean" }),
+    )
+
+    const resolved = await resolver.resolve("openai/gpt-5.5")
+    expect(resolved.mode).toBe("oauth")
+    expect(resolved.apiKey).toBe("")
+    expect(typeof resolved.fetch).toBe("function")
+  })
+
+  test("OpenAI OAuth auth can replace a cached API-key credential", async () => {
+    const resolver = createCredentialResolver(
+      fakeClient([{ id: "openai", source: "env", env: ["OPENAI_API_KEY"], key: "provider-key" }]),
+      resolveOptions({ model: "openai/gpt-5.5", lang: "Korean" }),
+    )
+
+    expect((await resolver.resolve("openai/gpt-5.5")).apiKey).toBe("provider-key")
+
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      openai: { type: "oauth", access: "access-token", refresh: "refresh-token", expires: Date.now() + 3600_000 },
+    })
+
+    const resolved = await resolver.resolve("openai/gpt-5.5")
+    expect(resolved.mode).toBe("oauth")
+    expect(resolved.apiKey).toBe("")
+    expect(typeof resolved.fetch).toBe("function")
+  })
+
+  test("OpenAI falls back if the OAuth record disappears before fetch setup", async () => {
+    delete process.env.OPENCODE_AUTH_CONTENT
+    let reads = 0
+    const resolver = createCredentialResolver(
+      fakeClient([{ id: "openai", source: "env", env: ["OPENAI_API_KEY"], key: "provider-key" }]),
+      resolveOptions({ model: "openai/gpt-5.5", apiKey: "explicit-key", lang: "Korean" }),
+      {
+        readFile: async () => {
+          reads += 1
+          if (reads === 1) {
+            return JSON.stringify({
+              openai: {
+                type: "oauth",
+                access: "access-token",
+                refresh: "refresh-token",
+                expires: Date.now() + 3600_000,
+              },
+            })
+          }
+          return "{}"
+        },
+      },
+    )
+
+    const resolved = await resolver.resolve("openai/gpt-5.5")
+    expect(resolved.mode).toBe("apiKey")
+    expect(resolved.apiKey).toBe("explicit-key")
+  })
+
+  test("auth file API records are used when provider keys are absent", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      anthropic: { type: "api", key: "stored-key" },
+    })
+
+    const resolver = createCredentialResolver(
+      fakeClient([{ id: "anthropic", source: "api", env: ["ANTHROPIC_API_KEY"] }]),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
+    )
+
+    const resolved = await resolver.resolve("anthropic/claude-haiku-4-5")
+    expect(resolved.mode).toBe("apiKey")
+    expect(resolved.apiKey).toBe("stored-key")
+  })
+
+  test("OAuth records without request adapters can be used as bearer keys", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      "custom-provider": {
+        type: "oauth",
+        access: "access-token",
+        refresh: "refresh-token",
+        expires: Date.now() + 3600_000,
+      },
+    })
+
+    const resolver = createCredentialResolver(
+      fakeClient([{ id: "custom-provider", source: "env", env: ["CUSTOM_PROVIDER_API_KEY"] }]),
+      resolveOptions({ model: "custom-provider/model", lang: "Korean" }),
+    )
+
+    const resolved = await resolver.resolve("custom-provider/model")
+    expect(resolved.mode).toBe("oauth")
+    expect(resolved.apiKey).toBe("access-token")
+    expect(resolved.fetch).toBeUndefined()
+  })
+
   test("provider-list failures fall through to default resolution instead of throwing", async () => {
     const resolver = createCredentialResolver(
       {
