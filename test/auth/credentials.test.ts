@@ -24,6 +24,21 @@ describe("auth credentials", () => {
     expect(resolved.mode).toBe("apiKey")
   })
 
+  test("credential caches are isolated per resolver", async () => {
+    const provider = { id: "anthropic", source: "api" as const, env: ["ANTHROPIC_API_KEY"], key: "provider-key" }
+    const first = createCredentialResolver(
+      fakeClient([provider]),
+      resolveOptions({ apiKey: "first-key", lang: "Korean" }),
+    )
+    const second = createCredentialResolver(
+      fakeClient([provider]),
+      resolveOptions({ apiKey: "second-key", lang: "Korean" }),
+    )
+
+    expect((await first.resolve("anthropic/claude-haiku-4-5")).apiKey).toBe("first-key")
+    expect((await second.resolve("anthropic/claude-haiku-4-5")).apiKey).toBe("second-key")
+  })
+
   test("env provider keys are used when present", async () => {
     const resolver = createCredentialResolver(
       fakeClient([{ id: "anthropic", source: "env", env: ["ANTHROPIC_API_KEY"], key: "env-key" }]),

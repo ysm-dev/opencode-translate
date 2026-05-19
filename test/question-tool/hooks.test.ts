@@ -266,3 +266,37 @@ test("tool.execute.after logs custom answer translation failures with source-lan
     "Failed to translate user message from Korean to English: custom answer translator down",
   )
 })
+
+test("question snapshots are capped to avoid unbounded retention", async () => {
+  const hooks = createHooks(
+    { client: fakeClient(), directory: "/workspace" } as never,
+    { lang: "Korean" },
+    { translator: { translateText: async ({ text }) => `[ko]${text}` } },
+  )
+
+  for (let index = 0; index < 1001; index += 1) {
+    await hooks["tool.execute.before"]!({ tool: "question", sessionID: "ses_1", callID: `call_${index}` }, {
+      args: cloneSampleArgs(),
+    } as never)
+  }
+
+  const prunedOutput = {
+    output: "unchanged",
+    metadata: { answers: [["[ko]Yes, delete"]] },
+  }
+  await hooks["tool.execute.after"]!(
+    { tool: "question", sessionID: "ses_1", callID: "call_0", args: cloneSampleArgs() } as never,
+    prunedOutput as never,
+  )
+  expect(prunedOutput.output).toBe("unchanged")
+
+  const retainedOutput = {
+    output: "translated",
+    metadata: { answers: [["[ko]Yes, delete"]] },
+  }
+  await hooks["tool.execute.after"]!(
+    { tool: "question", sessionID: "ses_1", callID: "call_1000", args: cloneSampleArgs() } as never,
+    retainedOutput as never,
+  )
+  expect(retainedOutput.output).toContain('"Are you sure?"="Yes, delete"')
+})

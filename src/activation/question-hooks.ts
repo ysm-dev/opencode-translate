@@ -12,7 +12,18 @@ import { logError } from "./logging"
 import { resolveSessionState } from "./state"
 import { type HookContext, QUESTION_TOOL_ID } from "./types"
 
+const QUESTION_SNAPSHOT_LIMIT = 1_000
+
 const questionSnapshots = new Map<string, QuestionSnapshot>()
+
+function pruneQuestionSnapshots() {
+  while (questionSnapshots.size > QUESTION_SNAPSHOT_LIMIT) {
+    for (const callID of questionSnapshots.keys()) {
+      questionSnapshots.delete(callID)
+      break
+    }
+  }
+}
 
 export function resetQuestionSnapshots() {
   questionSnapshots.clear()
@@ -26,8 +37,8 @@ export function createToolExecuteBeforeHook(ctx: HookContext): NonNullable<Hooks
       const activeState = resolved.state
       if (!activeState) return
 
-      const args = output.args as unknown
-      if (!isQuestionArgs(args)) return
+      if (!isQuestionArgs(output.args)) return
+      const args = output.args
 
       const original = snapshotQuestions(args)
       if (activeState.translate_user_lang !== LLM_LANGUAGE) {
@@ -48,6 +59,7 @@ export function createToolExecuteBeforeHook(ctx: HookContext): NonNullable<Hooks
       }
 
       questionSnapshots.set(input.callID, { original, translated: snapshotQuestions(args) })
+      pruneQuestionSnapshots()
     } catch (error) {
       await logError(ctx.client, error)
     }
@@ -64,24 +76,20 @@ export function createToolExecuteAfterHook(ctx: HookContext): NonNullable<Hooks[
 
       const resolved = await resolveSessionState(ctx.client, ctx.directory, input.sessionID)
       const activeState = resolved.state
-      const translateCustomAnswer =
-        activeState && activeState.translate_user_lang !== LLM_LANGUAGE
-          ? (text: string) =>
-              ctx.translator.translateText({
-                text,
-                sourceLanguage: activeState.translate_user_lang,
-                targetLanguage: LLM_LANGUAGE,
-                direction: "inbound",
-              })
-          : undefined
+      if (!activeState || activeState.translate_user_lang === LLM_LANGUAGE) {
+        await restoreQuestionOutput(output as QuestionToolOutput, snapshot)
+        return
+      }
 
       await restoreQuestionOutput(output as QuestionToolOutput, snapshot, {
-        ...(translateCustomAnswer ? { translateCustomAnswer } : {}),
+        translateCustomAnswer: (text: string) =>
+          ctx.translator.translateText({
+            text,
+            sourceLanguage: activeState.translate_user_lang,
+            targetLanguage: LLM_LANGUAGE,
+            direction: "inbound",
+          }),
         onTranslationError: async (error) => {
-          if (!activeState) {
-            await logError(ctx.client, error)
-            return
-          }
           await logError(
             ctx.client,
             buildInboundTranslationError(activeState.translate_user_lang, normalizeReason(error)),

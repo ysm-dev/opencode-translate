@@ -42,6 +42,19 @@ describe("question-tool helpers", () => {
     expect(args.questions[0].options[1].description).toBe("[ko]Keep the file.")
   })
 
+  test("translateQuestionArgs leaves args unchanged when one translation fails", async () => {
+    const args = cloneSampleArgs()
+
+    await expect(
+      translateQuestionArgs(args, async (text) => {
+        if (text === "Confirm") throw new Error("translator down")
+        return `[ko]${text}`
+      }),
+    ).rejects.toThrow("translator down")
+
+    expect(args).toEqual(cloneSampleArgs())
+  })
+
   test("buildRestoredOutput reconstructs the English output from a Korean answer", async () => {
     const original = snapshotQuestions(sampleArgs)
     const translated = snapshotQuestions(sampleArgs)

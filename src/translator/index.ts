@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises"
-import { generateText } from "ai"
+import { generateText, type LanguageModel } from "ai"
 import { createCredentialResolver } from "../auth"
 import {
   buildAuthUnavailableError,
@@ -73,20 +73,20 @@ export function createTranslator(
     const credentials = await credentialResolver.resolve(options.translatorModel)
     const factory = await loadFactory(providerID)
     const provider = instantiateProvider(factory, providerID, credentials)
-    const model = instantiateModel(provider, modelID)
+    const model = instantiateModel(provider, modelID) as LanguageModel
 
     const rawTranslated = await withRetry(async () => {
       try {
-        const result = (await withTimeout(
+        const result = await withTimeout(
           generateTextImpl({
-            model: model as never,
+            model,
             system: buildSystemPrompt(input),
             ...(supportsTemperature(providerID, modelID) ? { temperature: 0 } : {}),
             prompt: buildUserPrompt(input),
-          }) as Promise<{ text: string }>,
+          }),
           timeoutMs,
           "Translator generateText",
-        )) as { text: string }
+        )
         return result.text
       } catch (error) {
         if (isAuthMessage(error)) throw error

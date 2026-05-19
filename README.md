@@ -44,7 +44,7 @@ Hooks never throw. If the translator fails (network error, auth failure, provide
 3. Falls back to sending the original (untranslated) user text to the model.
 4. On activation-turn failure, it also rolls back activation so the next turn retries cleanly.
 
-A stalled provider request is additionally bounded by a 60s hard timeout per translation call, so a hung upstream cannot block the OpenCode session.
+A stalled provider request is additionally bounded by a 180s hard timeout per translation call, so a hung upstream cannot block the OpenCode session.
 
 ## Install
 

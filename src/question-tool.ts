@@ -76,35 +76,47 @@ export function isQuestionArgs(value: unknown): value is QuestionArgs {
   return true
 }
 
-async function assignTranslation(
-  container: Record<string, string>,
-  key: string,
-  translate: (text: string) => Promise<string>,
-): Promise<void> {
-  const original = container[key]
-  if (!original || original.length === 0) return
-  const translated = await translate(original)
-  container[key] = unwrapEchoedTextEnvelope(translated)
+async function translatedDisplayText(text: string, translate: (text: string) => Promise<string>): Promise<string> {
+  if (text.length === 0) return text
+  return unwrapEchoedTextEnvelope(await translate(text))
 }
 
-// Translate every display-facing string in `args` in parallel. The caller can
-// snapshot the translated form afterward with `snapshotQuestions`.
+// Translate every display-facing string in parallel, then commit the translated
+// clone only after every translation succeeds.
 export async function translateQuestionArgs(
   args: QuestionArgs,
   translate: (text: string) => Promise<string>,
 ): Promise<void> {
+  const translatedQuestions = snapshotQuestions(args)
   const jobs: Promise<void>[] = []
 
-  for (const q of args.questions) {
-    jobs.push(assignTranslation(q as unknown as Record<string, string>, "question", translate))
-    jobs.push(assignTranslation(q as unknown as Record<string, string>, "header", translate))
+  for (const q of translatedQuestions) {
+    jobs.push(
+      (async () => {
+        q.question = await translatedDisplayText(q.question, translate)
+      })(),
+    )
+    jobs.push(
+      (async () => {
+        q.header = await translatedDisplayText(q.header, translate)
+      })(),
+    )
     for (const option of q.options) {
-      jobs.push(assignTranslation(option as unknown as Record<string, string>, "label", translate))
-      jobs.push(assignTranslation(option as unknown as Record<string, string>, "description", translate))
+      jobs.push(
+        (async () => {
+          option.label = await translatedDisplayText(option.label, translate)
+        })(),
+      )
+      jobs.push(
+        (async () => {
+          option.description = await translatedDisplayText(option.description, translate)
+        })(),
+      )
     }
   }
 
   await Promise.all(jobs)
+  args.questions.splice(0, args.questions.length, ...translatedQuestions)
 }
 
 // Given a user-selected label, find the matching translated option and return

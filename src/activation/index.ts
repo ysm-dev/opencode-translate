@@ -19,7 +19,7 @@ export function __resetActivationCacheForTest() {
 export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, deps: HookDependencies = {}): Hooks {
   if (process.env.OPENCODE_TRANSLATE_DISABLE === "1") return {}
 
-  const client = ctx.client as unknown as PluginClientLike
+  const client = ctx.client as PluginClientLike
   const options = resolveOptions(rawOptions)
   const hookContext: HookContext = {
     client,

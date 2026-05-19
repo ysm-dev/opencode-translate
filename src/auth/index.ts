@@ -18,12 +18,8 @@ import { refreshAnthropic, refreshOpenAI } from "./refresh"
 import { ensureOAuthInfo, normalizeProviderKey, readAuthMap } from "./store"
 import type { AuthDependencies, AuthRuntime, ResolvedCredential } from "./types"
 
-const credentialCache = new Map<string, ResolvedCredential>()
-const oauthRefreshInflight = new Map<string, Promise<OAuthInfo>>()
-
 export function __resetAuthCachesForTest() {
-  credentialCache.clear()
-  oauthRefreshInflight.clear()
+  // Resolver instances own their caches; this remains as a stable test helper.
 }
 
 function isMissingCredentialError(error: unknown): boolean {
@@ -72,6 +68,8 @@ export function createCredentialResolver(
   options: ResolvedTranslateOptions,
   deps: AuthDependencies = {},
 ) {
+  const credentialCache = new Map<string, ResolvedCredential>()
+  const oauthRefreshInflight = new Map<string, Promise<OAuthInfo>>()
   const runtime: AuthRuntime = {
     fetchImpl: deps.fetchImpl ?? fetch,
     sleep: deps.sleep ?? ((ms: number) => sleep(ms)),
@@ -84,13 +82,14 @@ export function createCredentialResolver(
     if (!info) return undefined
     if (info.expires >= now() + 60_000) return info
 
-    const existing = oauthRefreshInflight.get(providerID)
+    const inflightKey = `${providerID}:${info.refresh}`
+    const existing = oauthRefreshInflight.get(inflightKey)
     if (existing) return existing
 
     const refreshPromise = refreshProviderOAuth(providerID, info, client, runtime).finally(() => {
-      oauthRefreshInflight.delete(providerID)
+      oauthRefreshInflight.delete(inflightKey)
     })
-    oauthRefreshInflight.set(providerID, refreshPromise)
+    oauthRefreshInflight.set(inflightKey, refreshPromise)
     return refreshPromise
   }
 
