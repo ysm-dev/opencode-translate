@@ -164,7 +164,6 @@ describe("auth store helpers", () => {
   afterEach(() => {
     delete process.env.OPENCODE_AUTH_CONTENT
     delete process.env.XDG_DATA_HOME
-    delete process.env.LOCALAPPDATA
   })
 
   test("normalizeProviderKey and ensureOAuthInfo filter non-OAuth credentials", () => {
@@ -235,32 +234,16 @@ describe("auth store helpers", () => {
     })
   })
 
-  test("readAuthMap follows platform data directories", async () => {
-    const platform = Object.getOwnPropertyDescriptor(process, "platform")
+  test("readAuthMap follows xdg-basedir default data directory", async () => {
     const seenPaths: string[] = []
-    try {
-      process.env.LOCALAPPDATA = "/tmp/opencode-local"
-      Object.defineProperty(process, "platform", { value: "win32" })
-      await readAuthMap({
-        readFile: async (filePath) => {
-          seenPaths.push(filePath)
-          throw new Error("missing")
-        },
-      })
+    await readAuthMap({
+      readFile: async (filePath) => {
+        seenPaths.push(filePath)
+        throw new Error("missing")
+      },
+    })
 
-      delete process.env.LOCALAPPDATA
-      Object.defineProperty(process, "platform", { value: "linux" })
-      await readAuthMap({
-        readFile: async (filePath) => {
-          seenPaths.push(filePath)
-          throw new Error("missing")
-        },
-      })
-    } finally {
-      if (platform) Object.defineProperty(process, "platform", platform)
-    }
-
-    expect(seenPaths[0]).toBe("/tmp/opencode-local/opencode/auth.json")
-    expect(seenPaths[2]?.endsWith("/.local/share/opencode/auth.json")).toBe(true)
+    expect(seenPaths[0]?.endsWith("/.local/share/opencode/auth.json")).toBe(true)
+    expect(seenPaths[1]?.endsWith("/.local/share/opencode/auth-v2.json")).toBe(true)
   })
 })

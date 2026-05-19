@@ -697,10 +697,8 @@ reconstructs the minimum viable authenticated-request shape per provider.
    containing either a legacy `Record<providerID, Info>` map or an auth-v2
    `{version:2, active, accounts}` payload.
 2. The opencode data directory's `auth.json`, then `auth-v2.json`. The data
-   directory follows xdg-basedir semantics with fallbacks per platform:
-   - macOS: `~/Library/Application Support/opencode/`
-   - Linux: `~/.local/share/opencode/`
-   - Windows: `%LOCALAPPDATA%\opencode\`
+   directory follows `xdg-basedir` semantics: `$XDG_DATA_HOME/opencode/`,
+   or `~/.local/share/opencode/` when `XDG_DATA_HOME` is unset.
 3. For auth-v2 payloads, active accounts win first; remaining account records
    are mapped by `serviceID` as a fallback.
 4. If no source exists or parsing fails, OAuth/API auth reuse returns
@@ -1825,7 +1823,7 @@ Decisions taken, in order:
   - `packages/opencode/src/auth/index.ts:7` — `OAUTH_DUMMY_KEY`
     constant (`"opencode-oauth-dummy-key"`).
   - `packages/opencode/src/auth/index.ts:9` — `auth.json` file path
-    (`path.join(Global.Path.data, "auth.json")`, mode 0o600).
+    (`path.join(Global.Path.data, "auth.json")`; writes use mode 0o600).
   - `packages/opencode/src/auth/index.ts:13-36` — `Auth.Info`
     discriminated union (`api` / `oauth` / `wellknown`).
   - `packages/opencode/src/auth/index.ts:59-63` —

@@ -8,8 +8,6 @@ import type { AuthDependencies } from "./types"
 function dataHome(): string {
   const xdgDataHome = process.env.XDG_DATA_HOME
   if (xdgDataHome) return xdgDataHome
-  if (process.platform === "darwin") return path.join(os.homedir(), "Library", "Application Support")
-  if (process.platform === "win32") return process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local")
   return path.join(os.homedir(), ".local", "share")
 }
 
