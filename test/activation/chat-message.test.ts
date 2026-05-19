@@ -29,7 +29,7 @@ describe("activation chat.message", () => {
 
     expect(calls).toBe(1)
     expect(output.parts).toHaveLength(3)
-    expect((output.parts[0] as TextPartLike).text).toContain("hello world\n\n_→ EN: EN:hello world_")
+    expect((output.parts[0] as TextPartLike).text).toContain("hello world\n\n→ EN: EN:hello world")
     expect((output.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
     expect((output.parts[0] as TextPartLike).text).not.toContain("$en")
     expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:hello world")
@@ -96,7 +96,7 @@ describe("activation chat.message", () => {
       (part) => part.type === "text" && part.synthetic !== true && part.ignored !== true,
     )
     expect(forkVisibleParts.map((part) => part.id)).toEqual(["p1"])
-    expect((output.parts[0] as TextPartLike).text).toBe("새 메시지\n\n_→ EN: EN:새 메시지_")
+    expect((output.parts[0] as TextPartLike).text).toBe("새 메시지\n\n→ EN: EN:새 메시지")
     expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:새 메시지")
     expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
   })

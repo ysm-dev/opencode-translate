@@ -76,7 +76,7 @@ async function translateUserPart(
     })
     const sourceHash = hashText(part.text)
     part.metadata = { ...(part.metadata ?? {}), ...mergeTranslatedMetadata(state, part, english) }
-    part.text = `${part.text}\n\n_→ EN: ${english}_`
+    part.text = `${part.text}\n\n→ EN: ${english}`
     nextParts.push(
       createLlmOnlyTextPart(part.sessionID, part.messageID, english, {
         translate_role: "llm_only_translation",
@@ -90,7 +90,7 @@ async function translateUserPart(
     const reason = normalizeReason(error)
     await logError(ctx.client, buildInboundTranslationError(state.translate_user_lang, reason))
     const originalText = part.text
-    part.text = `${originalText}\n\n_⚠️ Translation failed: ${reason}. Original text was sent to the model._`
+    part.text = `${originalText}\n\n⚠️ Translation failed: ${reason}. Original text was sent to the model.`
     part.ignored = true
     nextParts.push(
       createLlmOnlyTextPart(part.sessionID, part.messageID, originalText, {
@@ -129,7 +129,7 @@ function appendActivationBanner(
 ) {
   const bannerText = createActivationBannerText(ctx.options)
   if (processed.firstUserTextPart !== undefined) {
-    processed.firstUserTextPart.text = `${processed.firstUserTextPart.text}\n\n_${bannerText}_`
+    processed.firstUserTextPart.text = `${processed.firstUserTextPart.text}\n\n${bannerText}`
   }
   processed.nextParts.push(createActivationBannerPart(input.sessionID, output.message.id, state, bannerText))
 }

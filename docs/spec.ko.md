@@ -1391,21 +1391,21 @@ opencode    # 번역을 시작할 메시지에 "$en" 포함
   **non-synthetic 텍스트 파트를 단 하나만** 골라 렌더하도록 변경되면서, 두
   번째 이후의 텍스트 파트는 화면에 도달하지 못하게 됐다. 결과적으로 사용자에게
   원본만 보이고 `→ EN: ...` 미리보기는 사라졌다. v7은 미리보기를 원본 파트의
-  `text`에 인라인으로 추가(`{원본}\n\n_→ EN: {translated}_`)하고 `ignored:
+  `text`에 인라인으로 추가(`{원본}\n\n→ EN: {translated}`)하고 `ignored:
   true`를 유지한다 — UI는 결합된 한 파트를 그대로 렌더하고, LLM 직렬화기는
   여전히 그 파트를 건너뛰며, LLM-only 영문 트윈(`synthetic: true,
   ignored: false`)이 모델이 보는 깨끗한 프롬프트를 운반한다. `translation_
   preview` role은 더 이상 emit되지 않는다.
 - **번역 실패 알림도 동일한 인라인 패턴으로 전환.** 같은 UI 제약 때문에 별도
   합성 실패 알림 파트도 보이지 않았다. v7은 실패 시 원본 파트 텍스트에
-  `_⚠️ Translation failed: …_`를 인라인으로 붙이고 `ignored: true`로 마크한다.
+  `⚠️ Translation failed: …`를 인라인으로 붙이고 `ignored: true`로 마크한다.
   LLM은 새 `translate_role: "llm_only_fallback"` 트윈으로 깨끗한 원본
   텍스트만 본다(경고 문구는 LLM에 노출되지 않음). 이전 v6는 실패 시 원본
   파트를 그대로 두어 LLM이 원문을 그대로 받았으나 사용자에게 경고가 보이지
   않는 사일런트 실패였다.
 - **활성화 배너도 첫 사용자 텍스트 파트에 인라인.** 같은 단일-파트 렌더 제약
   때문에 별도 `synthetic: false, ignored: true` 배너 파트는 표시되지 않았다.
-  v7은 활성화 턴에 `_✓ Translation mode enabled · ..._`를 첫 user 텍스트
+  v7은 활성화 턴에 `✓ Translation mode enabled · ...`를 첫 user 텍스트
   파트(이미 `→ EN: ...` 미리보기가 인라인된 파트)의 본문에 추가한다. 동시에,
   `extractStoredState`의 `translate_role === "activation_banner"` 정본
   마커를 보존하기 위해 메타데이터 전용 합성 파트를 `synthetic: true,

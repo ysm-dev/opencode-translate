@@ -1536,14 +1536,14 @@ inline makes future re-reads faster.
   every part beyond the first stopped reaching the screen. The result
   was: users saw their original message but the `→ EN: ...` preview
   silently disappeared. v7 appends the preview directly to the source
-  part's `text` (`{original}\n\n_→ EN: {translated}_`) and keeps
+  part's `text` (`{original}\n\n→ EN: {translated}`) and keeps
   `ignored: true` — the UI now renders the combined text in a single
   part, the LLM serialiser still skips it, and the LLM-only English
   twin (`synthetic: true, ignored: false`) carries the clean prompt
   the model sees. The `translation_preview` role is no longer emitted.
 - **Translation-failure notice switched to the same inline pattern.**
   The same UI constraint hid the standalone failure notice. v7 now
-  appends `_⚠️ Translation failed: …_` to the source part's text and
+  appends `⚠️ Translation failed: …` to the source part's text and
   marks it `ignored: true`; the LLM receives the clean original text
   via a new `translate_role: "llm_only_fallback"` twin, so the warning
   copy never leaks into model context. v6's behaviour (leaving the
@@ -1552,7 +1552,7 @@ inline makes future re-reads faster.
   no indication that translation had skipped.
 - **Activation banner also inlined onto the first user text part.**
   The same single-part rendering constraint hid the standalone banner.
-  v7 appends `_✓ Translation mode enabled · ..._` to the first user
+  v7 appends `✓ Translation mode enabled · ...` to the first user
   text part on the activation turn (the same part that already carries
   the inline `→ EN: ...` preview). A metadata-only synthetic banner
   part is still emitted with `synthetic: true, ignored: true` (§3.4's

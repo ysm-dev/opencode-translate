@@ -51,7 +51,7 @@ describe("translation hook E2E flow", () => {
     const chatOutput = { message: { id: "msg_user" }, parts: [textPart("p1", "$en 안녕")] }
     await hooks["chat.message"]!({ sessionID: "ses_1" }, chatOutput as never)
 
-    expect((chatOutput.parts[0] as TextPartLike).text).toContain("안녕\n\n_→ EN: EN:안녕_")
+    expect((chatOutput.parts[0] as TextPartLike).text).toContain("안녕\n\n→ EN: EN:안녕")
     expect((chatOutput.parts[1] as TextPartLike).text).toBe("EN:안녕")
     expect((chatOutput.parts[2] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
 

@@ -34,7 +34,7 @@ describe("activation session cache", () => {
 
     expect(counted.calls).toEqual({ get: 1, messages: 1, message: 0 })
     expect(calls).toEqual(["inbound"])
-    expect((output.parts[0] as TextPartLike).text).toContain("안녕\n\n_→ EN: EN:안녕_")
+    expect((output.parts[0] as TextPartLike).text).toContain("안녕\n\n→ EN: EN:안녕")
     expect((output.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
     expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
     expect((output.parts[2] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
@@ -76,7 +76,7 @@ describe("activation session cache", () => {
     const laterOutput = { message: { id: "msg_later" }, parts: [textPart("p2", "$en later trigger")] }
     await hooks["chat.message"]!({ sessionID: "ses_1" }, laterOutput as never)
     expect(translatorCalls).toBe(1)
-    expect((laterOutput.parts[0] as TextPartLike).text).toContain("later trigger\n\n_→ EN: EN:later trigger_")
+    expect((laterOutput.parts[0] as TextPartLike).text).toContain("later trigger\n\n→ EN: EN:later trigger")
     expect((laterOutput.parts[2] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
   })
 
