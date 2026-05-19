@@ -16,6 +16,7 @@ import {
   instantiateModel,
   instantiateProvider,
   loadFactory,
+  resolveModelInfo,
   supportsTemperature,
 } from "./provider"
 import { withRetry } from "./retry"
@@ -71,9 +72,11 @@ export function createTranslator(
     const startedAt = now()
     const { providerID, modelID } = parseTranslatorModel(options.translatorModel)
     const credentials = await credentialResolver.resolve(options.translatorModel)
-    const factory = await loadFactory(providerID)
-    const provider = instantiateProvider(factory, providerID, credentials)
-    const model = instantiateModel(provider, modelID) as LanguageModel
+    const modelInfo = resolveModelInfo(credentials.provider, modelID)
+    const factory = await loadFactory(providerID, modelInfo)
+    const provider = instantiateProvider(factory, providerID, credentials, modelInfo)
+    const providerOptions = { ...(credentials.provider?.options ?? {}), ...(modelInfo.options ?? {}) }
+    const model = instantiateModel(provider, modelID, providerID, modelInfo, providerOptions) as LanguageModel
 
     const rawTranslated = await withRetry(async () => {
       try {
@@ -81,7 +84,7 @@ export function createTranslator(
           generateTextImpl({
             model,
             system: buildSystemPrompt(input),
-            ...(supportsTemperature(providerID, modelID) ? { temperature: 0 } : {}),
+            ...(supportsTemperature(providerID, modelID, modelInfo) ? { temperature: 0 } : {}),
             prompt: buildUserPrompt(input),
           }),
           timeoutMs,

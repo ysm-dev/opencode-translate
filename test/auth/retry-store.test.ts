@@ -164,6 +164,7 @@ describe("auth store helpers", () => {
   afterEach(() => {
     delete process.env.OPENCODE_AUTH_CONTENT
     delete process.env.XDG_DATA_HOME
+    delete process.env.LOCALAPPDATA
   })
 
   test("normalizeProviderKey and ensureOAuthInfo filter non-OAuth credentials", () => {
@@ -179,43 +180,87 @@ describe("auth store helpers", () => {
     expect(await readAuthMap({})).toBeUndefined()
   })
 
-  test("readAuthMap reads a private XDG auth file", async () => {
+  test("readAuthMap reads the OpenCode XDG auth file", async () => {
     delete process.env.OPENCODE_AUTH_CONTENT
     process.env.XDG_DATA_HOME = "/tmp/opencode-translate-test-data"
     let seenPath = ""
 
     const map = await readAuthMap({
-      stat: async (filePath) => {
+      readFile: async (filePath) => {
         seenPath = filePath
-        return { mode: 0o100600 } as never
+        return JSON.stringify({ anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1 } })
       },
-      readFile: async () => JSON.stringify({ anthropic: { type: "oauth", access: "a", refresh: "r", expires: 1 } }),
     })
 
     expect(seenPath).toBe("/tmp/opencode-translate-test-data/opencode/auth.json")
     expect(map?.anthropic?.type).toBe("oauth")
   })
 
-  test("readAuthMap rejects world-readable or invalid auth files", async () => {
+  test("readAuthMap returns undefined for invalid auth files", async () => {
     delete process.env.OPENCODE_AUTH_CONTENT
-    let readCalls = 0
 
     expect(
       await readAuthMap({
-        stat: async () => ({ mode: 0o100644 }) as never,
-        readFile: async () => {
-          readCalls += 1
-          return "{}"
-        },
-      }),
-    ).toBeUndefined()
-    expect(readCalls).toBe(0)
-
-    expect(
-      await readAuthMap({
-        stat: async () => ({ mode: 0o100600 }) as never,
         readFile: async () => "{not json",
       }),
     ).toBeUndefined()
+  })
+
+  test("readAuthMap normalizes active auth-v2 accounts", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      version: 2,
+      active: { anthropic: "acc_1" },
+      accounts: {
+        acc_1: {
+          serviceID: "anthropic",
+          credential: { type: "api", key: "api-key", metadata: { resourceName: "resource" } },
+        },
+      },
+    })
+
+    expect(await readAuthMap({})).toEqual({
+      anthropic: { type: "api", key: "api-key", metadata: { resourceName: "resource" } },
+    })
+  })
+
+  test("readAuthMap accepts wellknown credentials and ignores invalid entries", async () => {
+    process.env.OPENCODE_AUTH_CONTENT = JSON.stringify({
+      github: { type: "wellknown", key: "device-key", token: "device-token" },
+      invalidOauth: { type: "oauth", access: "a", refresh: "r" },
+      invalidType: { type: "other", key: "ignored" },
+    })
+
+    expect(await readAuthMap({})).toEqual({
+      github: { type: "wellknown", key: "device-key", token: "device-token" },
+    })
+  })
+
+  test("readAuthMap follows platform data directories", async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")
+    const seenPaths: string[] = []
+    try {
+      process.env.LOCALAPPDATA = "/tmp/opencode-local"
+      Object.defineProperty(process, "platform", { value: "win32" })
+      await readAuthMap({
+        readFile: async (filePath) => {
+          seenPaths.push(filePath)
+          throw new Error("missing")
+        },
+      })
+
+      delete process.env.LOCALAPPDATA
+      Object.defineProperty(process, "platform", { value: "linux" })
+      await readAuthMap({
+        readFile: async (filePath) => {
+          seenPaths.push(filePath)
+          throw new Error("missing")
+        },
+      })
+    } finally {
+      if (platform) Object.defineProperty(process, "platform", platform)
+    }
+
+    expect(seenPaths[0]).toBe("/tmp/opencode-local/opencode/auth.json")
+    expect(seenPaths[2]?.endsWith("/.local/share/opencode/auth.json")).toBe(true)
   })
 })

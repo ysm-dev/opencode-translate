@@ -626,44 +626,51 @@ Both are v2 candidates; see §16.
 
 ### 6.3 Authentication
 
-The translator shares credentials with opencode's stored auth from v1.
-The plugin resolves an `apiKey` (and, for OAuth-backed providers, a
-custom `fetch`) before every translator call using the priority order
-below. No new config option is introduced; users who run `opencode auth
-login <provider>` automatically make that credential available to the
-translator.
+The translator shares credentials with opencode's provider/auth runtime.
+Because plugins do not receive `Provider.Service.getLanguage()` directly,
+the plugin mirrors the direct-AI-SDK part of opencode's provider setup from
+`client.provider.list()`: provider/model package metadata, provider
+options, resolved env/API keys, model headers, model-loader options, and
+plugin auth loader options that opencode exposes on the provider. For auth records
+that are not exposed by the SDK, the plugin reads opencode auth content or
+auth files and adds the minimum request adapter needed for direct SDK calls.
+No new config option is introduced; users who run `opencode auth login
+<provider>` automatically make that credential available to the translator
+when opencode's provider list or auth files expose it.
 
 #### 6.3.1 Credential resolution order
 
 For the provider `P` parsed from `translatorModel` (e.g. `"anthropic"`
 from `"anthropic/claude-haiku-4-5"`), the resolver produces
-`{ apiKey?: string, fetch?: typeof fetch }` using the first match:
+`ResolvedCredential` using the first match:
 
 1. **Plugin option.** If `options.apiKey` is set in `opencode.json`, use
    it as `apiKey`. No `fetch` override.
 2. **opencode stored auth via SDK.** Call `client.provider.list()`, find
    `p = result.all.find(x => x.id === P)`:
-   - If `p.source === "api"` and `p.key` is a non-empty string not equal
-     to `OAUTH_DUMMY_KEY` (`"opencode-oauth-dummy-key"`,
-     `packages/opencode/src/auth/index.ts:7`), use `p.key` as `apiKey`.
-     This is the `auth login → Manually enter API Key` path.
-   - Else if `p.source === "env"` and `p.key` is a non-empty string, use
-     `p.key` as `apiKey`. opencode has already resolved the env var for
-     us; reusing the resolved value avoids process-env drift between the
+   - If `p.key` is a non-empty string not equal to `OAUTH_DUMMY_KEY`
+     (`"opencode-oauth-dummy-key"`, `packages/opencode/src/auth/index.ts:7`),
+     use it as `apiKey`. opencode has already resolved env/API-key auth for
+     us, so reusing the resolved value avoids process-env drift between the
      plugin factory and later hook invocations.
-   - Else if `p.source === "custom"` **or** `p.key === OAUTH_DUMMY_KEY`,
-     engage the OAuth reuse path in §6.3.2. Sets both `apiKey: ""` and
-     a custom `fetch` wrapper.
-   - Else if `p.key` is `undefined` and `p.env.length > 1`, the provider
-     is multi-var: follow §6.3.3.
-3. **`@ai-sdk/*` package default.** If nothing above resolves, pass no
+3. **opencode auth content/files.** Read §6.3.2 auth records. If `P` has an
+   API record, use `auth.key` as `apiKey` and preserve metadata for provider
+   URL placeholder substitution.
+4. **OAuth request adapter.** If `P` is one of `anthropic`, `openai`, or
+   `github-copilot`, or if `p.source === "custom"` / `p.key === OAUTH_DUMMY_KEY`,
+   and §6.3.2 finds an OAuth record, construct the provider with
+   `apiKey: ""` and a custom `fetch` wrapper.
+5. **Stored bearer fallback.** For OAuth records without a dedicated request
+   adapter, pass the stored `access` token as `apiKey` unless the provider
+   options already specify `apiKey`.
+6. **`@ai-sdk/*` package default.** If nothing above resolves, pass no
    `apiKey` to the factory and let the `@ai-sdk/*` package read its
    canonical env var(s) on its own (e.g. `@ai-sdk/anthropic` reads
    `ANTHROPIC_API_KEY`; `@ai-sdk/google` reads
    `GOOGLE_GENERATIVE_AI_API_KEY`; `@ai-sdk/openai` reads
    `OPENAI_API_KEY`). This preserves the previous v4 behaviour as a
    fallback.
-4. **Error.** If even step 3 yields a factory that throws at call time
+7. **Error.** If even step 6 yields a factory that throws at call time
    for missing credentials, the resolver translates that into the
    `AUTH_UNAVAILABLE` error (§6.4).
 
@@ -676,24 +683,23 @@ re-attempts.
 #### 6.3.2 OAuth reuse
 
 Three OAuth-backed providers are supported. When any of them is selected
-via `translatorModel` and resolution reaches the "engage OAuth reuse"
-branch of §6.3.1 step 2, the plugin reconstructs the minimum viable
-authenticated-request shape per provider.
+via `translatorModel` and §6.3.1 step 4 finds an OAuth record, the plugin
+reconstructs the minimum viable authenticated-request shape per provider.
 
-**Auth file discovery.** The plugin reads the raw `auth.json` map in
-this order:
+**Auth file discovery.** The plugin reads opencode auth records in this order:
 
 1. `process.env.OPENCODE_AUTH_CONTENT`, if set, parsed as a JSON object
-   (`Record<providerID, Info>`), matching
-   `packages/opencode/src/auth/index.ts:59-63`.
-2. `$XDG_DATA_HOME/opencode/auth.json` — resolved via `xdg-basedir`
-   semantics. Fallbacks per platform:
-   - macOS: `~/Library/Application Support/opencode/auth.json`
-   - Linux: `~/.local/share/opencode/auth.json`
-   - Windows: `%LOCALAPPDATA%\opencode\auth.json`
-3. If neither exists or the file fails to parse as JSON with mode 0o600,
-   OAuth reuse returns `undefined` and the resolver falls through to
-   step 3 of §6.3.1.
+   containing either a legacy `Record<providerID, Info>` map or an auth-v2
+   `{version:2, active, accounts}` payload.
+2. The opencode data directory's `auth.json`, then `auth-v2.json`. The data
+   directory follows xdg-basedir semantics with fallbacks per platform:
+   - macOS: `~/Library/Application Support/opencode/`
+   - Linux: `~/.local/share/opencode/`
+   - Windows: `%LOCALAPPDATA%\opencode\`
+3. For auth-v2 payloads, active accounts win first; remaining account records
+   are mapped by `serviceID` as a fallback.
+4. If no source exists or parsing fails, OAuth/API auth reuse returns
+   `undefined` and the resolver falls through to step 6 of §6.3.1.
 
 **Per-provider request shape.**
 
@@ -758,20 +764,20 @@ provider or configure `options.apiKey`.
 #### 6.3.3 Multi-var providers
 
 If the resolved `Provider` has `p.key === undefined` and
-`p.env.length > 1`, the plugin does **not** attempt to read or construct
-credentials. It passes no `apiKey` to the factory and lets the
-underlying `@ai-sdk/*` package read its own canonical env vars (e.g.
-`@ai-sdk/amazon-bedrock` reads `AWS_REGION`, `AWS_ACCESS_KEY_ID`,
-`AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`; `@ai-sdk/google-vertex`
-reads `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION`,
-`GOOGLE_VERTEX_API_KEY`).
+`p.env.length > 1`, and no API auth record was found in §6.3.2, the plugin
+does **not** attempt to synthesize a multi-field credential bundle. It passes
+no `apiKey` to the factory and lets the underlying `@ai-sdk/*` package read
+its own canonical env vars (e.g. `@ai-sdk/amazon-bedrock` reads `AWS_REGION`,
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`;
+`@ai-sdk/google-vertex` reads `GOOGLE_VERTEX_PROJECT`,
+`GOOGLE_VERTEX_LOCATION`, `GOOGLE_VERTEX_API_KEY`).
 
-The plugin never calls `client.auth.set` for multi-var providers.
-Credentials stored in `auth.json` for providers like `cloudflare`
-(`{type:"api", key, metadata: { accountId, gatewayId }}`) are ignored by
-the translator; users of those providers must set equivalent env vars or
-switch to a single-var `translatorModel`. This is listed as a v1
-non-goal in §2.
+The plugin never calls `client.auth.set` for multi-var providers. API auth
+records can still provide a single bearer/API key and metadata for OpenCode
+style placeholders such as `AZURE_RESOURCE_NAME`, `CLOUDFLARE_ACCOUNT_ID`,
+and `CLOUDFLARE_GATEWAY_ID`; the plugin just does not construct missing
+multi-var credentials from partial data. This is listed as a v1 non-goal in
+§2.
 
 #### 6.3.4 Sentinel detection
 

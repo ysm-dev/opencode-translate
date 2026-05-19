@@ -59,13 +59,27 @@ export interface MessageWithPartsLike {
   parts: TextPartLike[]
 }
 
+export interface ProviderModelInfo {
+  id?: string
+  api?: {
+    id?: string
+    url?: string
+    npm?: string
+  }
+  headers?: Record<string, string>
+  options?: Record<string, unknown>
+  capabilities?: {
+    temperature?: boolean
+  }
+}
+
 export interface ProviderInfo {
   id: string
   source: ProviderSource
   env: string[]
   key?: string
   options?: Record<string, unknown>
-  models?: Record<string, unknown>
+  models?: Record<string, ProviderModelInfo>
 }
 
 interface ProviderListResponseLike {

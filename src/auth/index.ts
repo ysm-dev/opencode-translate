@@ -34,6 +34,10 @@ function isMissingCredentialError(error: unknown): boolean {
   )
 }
 
+function hasOAuthRequestAdapter(providerID: string): boolean {
+  return providerID === "anthropic" || providerID === "openai" || providerID === "github-copilot"
+}
+
 async function refreshProviderOAuth(
   providerID: string,
   info: OAuthInfo,
@@ -93,10 +97,19 @@ export function createCredentialResolver(
     return refreshPromise
   }
 
-  function credentialFromOAuth(providerID: string, provider?: ProviderInfo): ResolvedCredential {
+  async function resolveAuthInfo(providerID: string) {
+    return (await readAuthMap(deps))?.[providerID]
+  }
+
+  function credentialFromOAuth(
+    providerID: string,
+    provider: ProviderInfo | undefined,
+    authInfo: OAuthInfo,
+  ): ResolvedCredential {
     return {
       providerID,
       provider,
+      authInfo,
       apiKey: "",
       fetch: buildOAuthFetch({ ...runtime, providerID, resolveOAuth, packageVersion: deps.packageVersion }),
       mode: "oauth",
@@ -109,35 +122,48 @@ export function createCredentialResolver(
     if (cached) return cached
 
     const provider = await getProvider(client, providerID)
+    const authInfo = await resolveAuthInfo(providerID)
     if (options.apiKey) {
-      const resolved = { providerID, provider, apiKey: options.apiKey, mode: "apiKey" as const }
+      const resolved = { providerID, provider, authInfo, apiKey: options.apiKey, mode: "apiKey" as const }
       credentialCache.set(providerID, resolved)
       return resolved
     }
 
     const providerKey = normalizeProviderKey(provider?.key)
-    if ((provider?.source === "api" || provider?.source === "env") && providerKey) {
-      const resolved = { providerID, provider, apiKey: providerKey, mode: "apiKey" as const }
+    if (providerKey) {
+      const resolved = { providerID, provider, authInfo, apiKey: providerKey, mode: "apiKey" as const }
       credentialCache.set(providerID, resolved)
       return resolved
     }
 
-    if (provider?.source === "custom" || provider?.key === OAUTH_DUMMY_KEY) {
+    if (authInfo?.type === "api" && authInfo.key) {
+      const resolved = { providerID, provider, authInfo, apiKey: authInfo.key, mode: "apiKey" as const }
+      credentialCache.set(providerID, resolved)
+      return resolved
+    }
+
+    if (provider?.source === "custom" || provider?.key === OAUTH_DUMMY_KEY || hasOAuthRequestAdapter(providerID)) {
       const oauthInfo = await resolveOAuth(providerID)
       if (oauthInfo) {
-        const resolved = credentialFromOAuth(providerID, provider)
+        const resolved = credentialFromOAuth(providerID, provider, oauthInfo)
         credentialCache.set(providerID, resolved)
         return resolved
       }
     }
 
-    if (provider?.key === undefined && (provider?.env.length ?? 0) > 1) {
-      const resolved = { providerID, provider, mode: "default" as const }
+    if (authInfo?.type === "oauth" && authInfo.access && provider?.options?.apiKey === undefined) {
+      const resolved = { providerID, provider, authInfo, apiKey: authInfo.access, mode: "oauth" as const }
       credentialCache.set(providerID, resolved)
       return resolved
     }
 
-    return { providerID, provider, mode: "default" }
+    if (provider?.key === undefined && (provider?.env.length ?? 0) > 1) {
+      const resolved = { providerID, provider, authInfo, mode: "default" as const }
+      credentialCache.set(providerID, resolved)
+      return resolved
+    }
+
+    return { providerID, provider, authInfo, mode: "default" }
   }
 
   return {

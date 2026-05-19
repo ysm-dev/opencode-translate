@@ -101,6 +101,12 @@ Using this plugin means text goes to two model providers per turn:
 
 If you need strict single-provider or self-hosted-only behavior, do not enable this plugin.
 
+## Authentication
+
+Translator requests are made through the AI SDK directly, but provider setup mirrors OpenCode's resolved provider metadata from `client.provider.list()`: provider/model package metadata, configured provider options, model headers, resolved env/API keys, and plugin-auth-loader options that OpenCode exposes there.
+
+For OAuth records that OpenCode does not expose through the plugin SDK, the plugin reads OpenCode auth content/files and adapts the request only where direct AI SDK calls need it.
+
 ## Anthropic OAuth Support
 
 If `translatorModel` uses Anthropic and OpenCode auth is backed by Anthropic OAuth (Claude Pro/Max), the plugin reuses those OAuth credentials for translation requests.
@@ -121,7 +127,7 @@ Tradeoffs:
 - OpenCode upstream removed Anthropic OAuth support for legal / policy reasons. Installing this plugin reintroduces an equivalent code path in your environment.
 - Translator requests contribute to your Claude Pro/Max rate limit alongside OpenCode's main chat.
 
-If you prefer a plain API key, set `ANTHROPIC_API_KEY` in the environment or pass `apiKey` in plugin options. The plugin prefers explicit `apiKey`, then `ANTHROPIC_API_KEY`, then OAuth.
+If you prefer a plain API key, set `ANTHROPIC_API_KEY`, use `opencode auth login anthropic`, or pass `apiKey` in plugin options.
 
 ## OpenAI OAuth Support
 
@@ -129,7 +135,7 @@ If `translatorModel` uses OpenAI and OpenCode auth is backed by the ChatGPT/Code
 
 For OAuth-backed OpenAI requests, the plugin routes the OpenAI AI SDK request to `https://chatgpt.com/backend-api/codex/responses`, adds the required Codex beta/originator headers, normalizes the request body to Codex's expected typed `input` shape, and converts Codex SSE responses back to JSON for translation calls. This supports models such as `openai/gpt-5.5` when your ChatGPT plan has access.
 
-If you prefer a plain API key, set `OPENAI_API_KEY` in the environment or pass `apiKey` in plugin options. The plugin prefers explicit `apiKey`, then `OPENAI_API_KEY`, then OAuth.
+If you prefer a plain API key, set `OPENAI_API_KEY`, use `opencode auth login openai`, or pass `apiKey` in plugin options.
 
 ## Manual Smoke Test
 

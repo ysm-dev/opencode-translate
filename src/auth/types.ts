@@ -1,8 +1,9 @@
-import type { FetchLike, OAuthInfo, ProviderInfo } from "../constants"
+import type { AuthInfo, FetchLike, OAuthInfo, ProviderInfo } from "../constants"
 
 export interface ResolvedCredential {
   providerID: string
   provider?: ProviderInfo
+  authInfo?: AuthInfo
   apiKey?: string
   fetch?: FetchLike
   mode: "apiKey" | "oauth" | "default"
@@ -13,7 +14,6 @@ export interface AuthDependencies {
   now?: () => number
   sleep?: (ms: number) => Promise<void>
   readFile?: (filePath: string, encoding: BufferEncoding) => Promise<string>
-  stat?: (filePath: string) => Promise<{ mode: number }>
   packageVersion?: string
 }
 
