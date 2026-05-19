@@ -18,6 +18,16 @@ describe("option resolution", () => {
     })
   })
 
+  test("resolveOptions accepts legacy triggerKeywords configuration", () => {
+    expect(
+      resolveOptions({
+        lang: "Korean",
+        model: "anthropic/claude-haiku-4-5",
+        triggerKeywords: ["$go"],
+      }),
+    ).toMatchObject({ trigger: ["$go"] })
+  })
+
   test("resolveOptions requires model", () => {
     expect(() => resolveOptions({ lang: "Korean" })).toThrow("options.model is required")
     expect(() => resolveOptions({ model: "  ", lang: "Korean" })).toThrow("options.model is required")

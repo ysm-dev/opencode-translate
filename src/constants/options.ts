@@ -22,9 +22,12 @@ export function resolveOptions(options: Record<string, unknown>): ResolvedTransl
     )
   }
 
-  const trigger = Array.isArray(options.trigger)
-    ? options.trigger.filter((value): value is string => typeof value === "string" && value.length > 0)
-    : DEFAULT_TRIGGER
+  const rawTrigger = Array.isArray(options.trigger)
+    ? options.trigger
+    : Array.isArray(options.triggerKeywords)
+      ? options.triggerKeywords
+      : DEFAULT_TRIGGER
+  const trigger = rawTrigger.filter((value): value is string => typeof value === "string" && value.length > 0)
 
   return {
     model,
