@@ -58,7 +58,7 @@ Add it to `~/.config/opencode/opencode.json`:
 {
   "plugin": [
     ["opencode-translate", {
-      "translatorModel": "anthropic/claude-haiku-4-5",
+      "model": "anthropic/claude-haiku-4-5",
       "triggerKeywords": ["$en"],
       "lang": "Korean",
       "verbose": false
@@ -84,11 +84,13 @@ $en 프로젝트 루트의 package.json을 읽고 요약해줘
 
 | Option | Type | Default |
 | --- | --- | --- |
-| `translatorModel` | string | `anthropic/claude-haiku-4-5` |
+| `model` | string | Required |
 | `triggerKeywords` | string[] | `[$en]` |
 | `lang` | string | Required |
 | `apiKey` | string | `undefined` |
 | `verbose` | boolean | `false` |
+
+Set `model` to the translator model in `provider/model-id` form, such as `"anthropic/claude-haiku-4-5"`.
 
 Set `lang` to the full name of the language the user reads and writes, such as `"Korean"`, `"Japanese"`, or `"Brazilian Portuguese"`. The value is injected directly into translation prompts, so language code mapping is not required.
 
@@ -97,7 +99,7 @@ Set `lang` to the full name of the language the user reads and writes, such as `
 Using this plugin means text goes to two model providers per turn:
 
 - the normal OpenCode chat provider
-- the configured `translatorModel` provider
+- the configured `model` provider
 
 If you need strict single-provider or self-hosted-only behavior, do not enable this plugin.
 
@@ -109,7 +111,7 @@ For OAuth records that OpenCode does not expose through the plugin SDK, the plug
 
 ## Anthropic OAuth Support
 
-If `translatorModel` uses Anthropic and OpenCode auth is backed by Anthropic OAuth (Claude Pro/Max), the plugin reuses those OAuth credentials for translation requests.
+If `model` uses Anthropic and OpenCode auth is backed by Anthropic OAuth (Claude Pro/Max), the plugin reuses those OAuth credentials for translation requests.
 
 Anthropic's `/v1/messages` endpoint rejects OAuth-authenticated requests that do not match the Claude Code CLI fingerprint (response: `429 rate_limit_error` with an empty `"Error"` message). To pass, the plugin applies the same transformation that `@ex-machina/opencode-anthropic-auth` uses for OpenCode's main chat, but only for its own translator requests:
 
@@ -131,7 +133,7 @@ If you prefer a plain API key, set `ANTHROPIC_API_KEY`, use `opencode auth login
 
 ## OpenAI OAuth Support
 
-If `translatorModel` uses OpenAI and OpenCode auth is backed by the ChatGPT/Codex OAuth flow, the plugin reuses those OAuth credentials for translation requests.
+If `model` uses OpenAI and OpenCode auth is backed by the ChatGPT/Codex OAuth flow, the plugin reuses those OAuth credentials for translation requests.
 
 For OAuth-backed OpenAI requests, the plugin routes the OpenAI AI SDK request to `https://chatgpt.com/backend-api/codex/responses`, adds the required Codex beta/originator headers, normalizes the request body to Codex's expected typed `input` shape, and converts Codex SSE responses back to JSON for translation calls. This supports models such as `openai/gpt-5.5` when your ChatGPT plan has access.
 

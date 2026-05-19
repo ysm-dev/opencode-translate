@@ -5,7 +5,7 @@ export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promis
 type ProviderSource = "env" | "config" | "custom" | "api"
 
 export interface ResolvedTranslateOptions {
-  translatorModel: string
+  model: string
   triggerKeywords: string[]
   lang: string
   apiKey?: string

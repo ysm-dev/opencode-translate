@@ -8,7 +8,7 @@ import {
 import { createSyntheticPartID } from "../translator"
 
 export function createActivationBannerText(options: ResolvedTranslateOptions): string {
-  const { modelID } = parseTranslatorModel(options.translatorModel)
+  const { modelID } = parseTranslatorModel(options.model)
   return `✓ Translation mode enabled · translator: ${modelID} · language: ${options.lang}`
 }
 

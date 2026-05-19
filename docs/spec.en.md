@@ -618,11 +618,12 @@ Both are v2 candidates; see §16.
   leak sessions into the UI.
 - Not via raw HTTP: forces per-provider branching.
 
-### 6.2 Default model
+### 6.2 Suggested model
 
 - `anthropic/claude-haiku-4-5` — cheap, fast, strong on code-adjacent
   text.
-- Configurable via `translatorModel` in the plugin options.
+- No default model is applied; users must configure `model` in the plugin
+  options.
 
 ### 6.3 Authentication
 
@@ -640,7 +641,7 @@ when opencode's provider list or auth files expose it.
 
 #### 6.3.1 Credential resolution order
 
-For the provider `P` parsed from `translatorModel` (e.g. `"anthropic"`
+For the provider `P` parsed from `model` (e.g. `"anthropic"`
 from `"anthropic/claude-haiku-4-5"`), the resolver produces
 `ResolvedCredential` using the first match:
 
@@ -683,7 +684,7 @@ re-attempts.
 #### 6.3.2 OAuth reuse
 
 Three OAuth-backed providers are supported. When any of them is selected
-via `translatorModel` and §6.3.1 step 4 finds an OAuth record, the plugin
+via `model` and §6.3.1 step 4 finds an OAuth record, the plugin
 reconstructs the minimum viable authenticated-request shape per provider.
 
 **Auth file discovery.** The plugin reads opencode auth records in this order:
@@ -758,7 +759,7 @@ tool-name `mcp_` prefix rewriting, User-Agent spoof (`claude-cli/2.1.2
 (`opencode-translate/<version>`). If Anthropic rejects such requests
 (401/403/blocked response), the error is surfaced through the normal
 §6.4 failure surfaces (`INBOUND_TRANSLATION_FAILED` or the outbound
-failure trailer); users can switch `translatorModel` to an API-key
+failure trailer); users can switch `model` to an API-key
 provider or configure `options.apiKey`.
 
 #### 6.3.3 Multi-var providers
@@ -806,7 +807,7 @@ evasions opencode removed; it issues requests with its own User-Agent
 and without the tool-name rewriting or system-prompt substitution.
 Users who do not want to accept this risk should either (a) configure a
 plain API key via `ANTHROPIC_API_KEY` or `opencode auth login anthropic
-→ Manually enter API Key`, or (b) set `translatorModel` to a
+→ Manually enter API Key`, or (b) set `model` to a
 non-Anthropic provider. The README repeats this warning prominently.
 
 ### 6.4 Retry policy
@@ -1044,7 +1045,7 @@ Via `opencode.json`:
 {
   "plugin": [
     ["opencode-translate", {
-      "translatorModel": "anthropic/claude-haiku-4-5",
+      "model": "anthropic/claude-haiku-4-5",
       "triggerKeywords": ["$en"],
       "sourceLanguage": "ko",
       "displayLanguage": "ko",
@@ -1056,7 +1057,7 @@ Via `opencode.json`:
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `translatorModel` | string | `"anthropic/claude-haiku-4-5"` | Translator model id in `provider/model-id` form understood by `ai`'s provider resolver. |
+| `model` | string | Required | Translator model id in `provider/model-id` form understood by `ai`'s provider resolver. |
 | `triggerKeywords` | string[] | `["$en"]` | Tokens whose presence in any inactive root-session user message activates translation mode from that message forward. Matched as whitespace-separated tokens; case-sensitive. |
 | `sourceLanguage` | string | `"en"` | The language the user types in. ISO-639-1 preferred (`ko`, `ja`, `zh`, `de`, …). When equal to `"en"`, the **inbound** translation step is a no-op. |
 | `displayLanguage` | string | `"en"` | The language the plugin renders assistant output in. When equal to `"en"`, the **outbound** translation step is a no-op. |
@@ -1212,12 +1213,12 @@ plugin-owned activation banner appears before the main LLM response:
 
 **Privacy.** Enabling this plugin means the session's user and
 assistant text traverses **two external LLM providers** per turn: the
-main-chat provider configured in opencode *and* the `translatorModel`
+main-chat provider configured in opencode *and* the `model`
 provider configured here. For users with strict data-residency or
 self-hosted-only constraints, this is a material change from running
 opencode without the plugin. The README calls this out explicitly. The
 plugin itself does not send data anywhere other than to the configured
-`translatorModel` provider.
+`model` provider.
 
 ## 13. Package Layout
 
@@ -1722,8 +1723,8 @@ Decisions taken, in order:
 1. Activation: root-session keyword → translation ON from that message forward.
 2. Storage: keep user's original text, translate to English per turn
    with caching.
-3. Translator: dedicated cheap model (default Haiku) configurable via
-   `translatorModel`.
+3. Translator: dedicated cheap model (recommended Haiku) configurable via
+   `model`.
 4. Protect: placeholder-based for code blocks, inline code, file
    paths, URLs, identifiers, shell, env, JSON keys, stack frames,
    diffs, regex, tags.
@@ -1754,7 +1755,7 @@ Decisions taken, in order:
     technically infeasible with today's hook surface (§3.3); every
     text part is translated in v1.
 19. Activation announcement: a plugin-owned banner part.
-20. Config options: `translatorModel`, `triggerKeywords`,
+20. Config options: `model`, `triggerKeywords`,
     `sourceLanguage`, `displayLanguage`, `verbose`.
 21. Translator prompt: strong instructions + 2 few-shots +
     placeholder rule.

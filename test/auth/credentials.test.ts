@@ -16,7 +16,7 @@ describe("auth credentials", () => {
   test("options.apiKey takes precedence over provider keys", async () => {
     const resolver = createCredentialResolver(
       fakeClient([{ id: "anthropic", source: "api", env: ["ANTHROPIC_API_KEY"], key: "provider-key" }]),
-      resolveOptions({ apiKey: "override-key", lang: "Korean" }),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", apiKey: "override-key", lang: "Korean" }),
     )
 
     const resolved = await resolver.resolve("anthropic/claude-haiku-4-5")
@@ -28,11 +28,11 @@ describe("auth credentials", () => {
     const provider = { id: "anthropic", source: "api" as const, env: ["ANTHROPIC_API_KEY"], key: "provider-key" }
     const first = createCredentialResolver(
       fakeClient([provider]),
-      resolveOptions({ apiKey: "first-key", lang: "Korean" }),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", apiKey: "first-key", lang: "Korean" }),
     )
     const second = createCredentialResolver(
       fakeClient([provider]),
-      resolveOptions({ apiKey: "second-key", lang: "Korean" }),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", apiKey: "second-key", lang: "Korean" }),
     )
 
     expect((await first.resolve("anthropic/claude-haiku-4-5")).apiKey).toBe("first-key")
@@ -42,7 +42,7 @@ describe("auth credentials", () => {
   test("env provider keys are used when present", async () => {
     const resolver = createCredentialResolver(
       fakeClient([{ id: "anthropic", source: "env", env: ["ANTHROPIC_API_KEY"], key: "env-key" }]),
-      resolveOptions({ lang: "Korean" }),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     )
 
     const resolved = await resolver.resolve("anthropic/claude-haiku-4-5")
@@ -52,14 +52,14 @@ describe("auth credentials", () => {
   test("dummy and empty keys are treated as no key and fall through", async () => {
     const sentinelResolver = createCredentialResolver(
       fakeClient([{ id: "anthropic", source: "api", env: ["ANTHROPIC_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-      resolveOptions({ lang: "Korean" }),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     )
     expect((await sentinelResolver.resolve("anthropic/claude-haiku-4-5")).mode).toBe("default")
 
     __resetAuthCachesForTest()
     const emptyResolver = createCredentialResolver(
       fakeClient([{ id: "anthropic", source: "api", env: ["ANTHROPIC_API_KEY"], key: "" }]),
-      resolveOptions({ lang: "Korean" }),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     )
     expect((await emptyResolver.resolve("anthropic/claude-haiku-4-5")).mode).toBe("default")
   })
@@ -74,7 +74,7 @@ describe("auth credentials", () => {
           env: ["AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         },
       ]),
-      resolveOptions({ translatorModel: model, lang: "Korean" }),
+      resolveOptions({ model, lang: "Korean" }),
     )
 
     const resolved = await resolver.resolve(model)
@@ -89,7 +89,7 @@ describe("auth credentials", () => {
 
     const resolver = createCredentialResolver(
       fakeClient([{ id: "anthropic", source: "custom", env: ["ANTHROPIC_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-      resolveOptions({ lang: "Korean" }),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     )
 
     const resolved = await resolver.resolve("anthropic/claude-haiku-4-5")
@@ -108,7 +108,7 @@ describe("auth credentials", () => {
           },
         },
       },
-      resolveOptions({ lang: "Korean" }),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     )
 
     const resolved = await resolver.resolve("anthropic/claude-haiku-4-5")
@@ -116,7 +116,10 @@ describe("auth credentials", () => {
   })
 
   test("missing credential detection covers common provider error wording", () => {
-    const resolver = createCredentialResolver(fakeClient([]), resolveOptions({ lang: "Korean" }))
+    const resolver = createCredentialResolver(
+      fakeClient([]),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
+    )
 
     expect(resolver.isMissingCredentialError(new Error("API key missing"))).toBe(true)
     expect(resolver.isMissingCredentialError(new Error("api-key required"))).toBe(true)
@@ -128,7 +131,10 @@ describe("auth credentials", () => {
   })
 
   test("authUnavailable falls back to the generic API-key hint", () => {
-    const resolver = createCredentialResolver(fakeClient([]), resolveOptions({ lang: "Korean" }))
+    const resolver = createCredentialResolver(
+      fakeClient([]),
+      resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
+    )
 
     expect(resolver.authUnavailable("custom-provider").message).toContain("Set the provider's API key env var")
   })

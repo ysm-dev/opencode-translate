@@ -6,7 +6,7 @@ import { fakeClient } from "./helpers"
 
 function testOptions(overrides: Record<string, unknown> = {}) {
   return {
-    translatorModel: "anthropic/claude-haiku-4-5",
+    model: "anthropic/claude-haiku-4-5",
     triggerKeywords: ["$en"],
     lang: "Korean",
     verbose: false,
@@ -109,7 +109,7 @@ test("unwraps echoed text envelope from translator output", async () => {
 
 test("OpenAI reasoning translators omit unsupported temperature", async () => {
   let request: Record<string, unknown> | undefined
-  const translator = createTranslator(fakeClient([]), testOptions({ translatorModel: "openai/gpt-5.5" }), {
+  const translator = createTranslator(fakeClient([]), testOptions({ model: "openai/gpt-5.5" }), {
     credentialResolver: {
       resolve: async () => ({ providerID: "openai", apiKey: "test-key", mode: "apiKey" as const }),
       isMissingCredentialError: () => false,
@@ -180,7 +180,7 @@ test("OpenAI OAuth translator requests are Codex-compatible", async () => {
       }),
     },
   }
-  const options = resolveOptions({ translatorModel: "openai/gpt-5.5", lang: "Korean" })
+  const options = resolveOptions({ model: "openai/gpt-5.5", lang: "Korean" })
   let finalUrl = ""
   let finalBody = ""
   const credentialResolver = createCredentialResolver(client, options, {

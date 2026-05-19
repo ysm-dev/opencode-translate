@@ -58,7 +58,10 @@ describe("activation trigger and state", () => {
     const previous = process.env.OPENCODE_TRANSLATE_DISABLE
     process.env.OPENCODE_TRANSLATE_DISABLE = "1"
     try {
-      const hooks = createHooks({ client: fakeClient([]), directory: "/workspace" } as never, { lang: "Korean" })
+      const hooks = createHooks({ client: fakeClient([]), directory: "/workspace" } as never, {
+        model: "anthropic/claude-haiku-4-5",
+        lang: "Korean",
+      })
       expect(hooks).toEqual({})
       expect(hooks["chat.message"]).toBeUndefined()
       expect(hooks["experimental.chat.messages.transform"]).toBeUndefined()

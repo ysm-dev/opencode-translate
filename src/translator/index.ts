@@ -70,8 +70,8 @@ export function createTranslator(
     if (input.sourceLanguage === input.targetLanguage) return input.text
 
     const startedAt = now()
-    const { providerID, modelID } = parseTranslatorModel(options.translatorModel)
-    const credentials = await credentialResolver.resolve(options.translatorModel)
+    const { providerID, modelID } = parseTranslatorModel(options.model)
+    const credentials = await credentialResolver.resolve(options.model)
     const modelInfo = resolveModelInfo(credentials.provider, modelID)
     const factory = await loadFactory(providerID, modelInfo)
     const provider = instantiateProvider(factory, providerID, credentials, modelInfo)
@@ -113,7 +113,7 @@ export function createTranslator(
             chars_out: translated.length,
             ms: now() - startedAt,
             cached: false,
-            model: options.translatorModel,
+            model: options.model,
           },
         },
       })

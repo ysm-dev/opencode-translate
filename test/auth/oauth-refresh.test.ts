@@ -24,7 +24,7 @@ test("expired OAuth tokens refresh once and persist updated auth", async () => {
       [{ id: "anthropic", source: "custom", env: ["ANTHROPIC_API_KEY"], key: "opencode-oauth-dummy-key" }],
       authSetCalls,
     ),
-    resolveOptions({ lang: "Korean" }),
+    resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     {
       fetchImpl: async () => {
         fetchCalls += 1
@@ -74,7 +74,7 @@ test("expired OpenAI OAuth tokens refresh with Codex form body", async () => {
       [{ id: "openai", source: "custom", env: ["OPENAI_API_KEY"], key: "opencode-oauth-dummy-key" }],
       authSetCalls,
     ),
-    resolveOptions({ translatorModel: "openai/gpt-5.5", lang: "Korean" }),
+    resolveOptions({ model: "openai/gpt-5.5", lang: "Korean" }),
     {
       fetchImpl: async (_input, init) => {
         refreshBody = String(init?.body)
@@ -113,7 +113,7 @@ test("OAuth refresh is coalesced across concurrent resolves", async () => {
   let fetchCalls = 0
   const resolver = createCredentialResolver(
     fakeClient([{ id: "anthropic", source: "custom", env: ["ANTHROPIC_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-    resolveOptions({ lang: "Korean" }),
+    resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     {
       fetchImpl: async () => {
         fetchCalls += 1
@@ -141,7 +141,7 @@ test("OAuth refresh uses the default zero-delay sleeper when no sleep dependency
   let fetchCalls = 0
   const resolver = createCredentialResolver(
     fakeClient([{ id: "anthropic", source: "custom", env: ["ANTHROPIC_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-    resolveOptions({ lang: "Korean" }),
+    resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     {
       fetchImpl: async () => {
         fetchCalls += 1
@@ -164,7 +164,7 @@ test("OAuth refresh failures surface the exact error after retries", async () =>
   let fetchCalls = 0
   const resolver = createCredentialResolver(
     fakeClient([{ id: "anthropic", source: "custom", env: ["ANTHROPIC_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-    resolveOptions({ lang: "Korean" }),
+    resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     {
       fetchImpl: async () => {
         fetchCalls += 1

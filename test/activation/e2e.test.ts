@@ -37,7 +37,7 @@ describe("translation hook E2E flow", () => {
     const calls: string[] = []
     const hooks = createHooks(
       { client: makeClient(storedMessages), directory: "/workspace" } as never,
-      { lang: "Korean" },
+      { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
       {
         translator: {
           translateText: async ({ text, direction }) => {
@@ -132,7 +132,7 @@ describe("translation hook E2E flow", () => {
     ]
     const hooks = createHooks(
       { client: makeClient(storedMessages, logs), directory: "/workspace" } as never,
-      { lang: "Korean" },
+      { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
       {
         translator: {
           translateText: async () => {

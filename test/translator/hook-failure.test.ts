@@ -15,7 +15,7 @@ describe("translator hook failures", () => {
   test("final failure in chat.message does not throw and falls back to the untranslated text", async () => {
     const hooks = createHooks(
       { client: fakeClient([]), directory: "/workspace" } as never,
-      { lang: "Korean" },
+      { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
       {
         translator: {
           translateText: async () => {
@@ -43,7 +43,7 @@ describe("translator hook failures", () => {
     ]
     const hooks = createHooks(
       { client: fakeClient(messages), directory: "/workspace" } as never,
-      { lang: "Korean" },
+      { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
       {
         translator: {
           translateText: async ({ text }) => {
@@ -78,7 +78,7 @@ describe("translator hook failures", () => {
     ]
     const hooks = createHooks(
       { client: fakeClient(history), directory: "/workspace" } as never,
-      { lang: "Korean" },
+      { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
       {
         translator: {
           translateText: async ({ text }) => {
