@@ -7,7 +7,7 @@ import { fakeClient } from "./helpers"
 function testOptions(overrides: Record<string, unknown> = {}) {
   return {
     model: "anthropic/claude-haiku-4-5",
-    triggerKeywords: ["$en"],
+    trigger: ["$en"],
     lang: "Korean",
     verbose: false,
     ...overrides,
@@ -158,7 +158,7 @@ test("missing credentials surface the exact auth-unavailable error", async () =>
       direction: "inbound",
     }),
   ).rejects.toThrow(
-    '[opencode-translate:AUTH_UNAVAILABLE] No credential found for provider "anthropic". Set ANTHROPIC_API_KEY in the environment, run "opencode auth login anthropic", or set options.apiKey in opencode.json.',
+    '[opencode-translate:AUTH_UNAVAILABLE] No credential found for provider "anthropic". Set ANTHROPIC_API_KEY in the environment or run "opencode auth login anthropic".',
   )
 })
 
@@ -183,7 +183,7 @@ test("OpenAI OAuth translator requests are Codex-compatible", async () => {
   const options = resolveOptions({ model: "openai/gpt-5.5", lang: "Korean" })
   let finalUrl = ""
   let finalBody = ""
-  const credentialResolver = createCredentialResolver(client, options, {
+  const credentialResolver = createCredentialResolver(client, {
     fetchImpl: async (input, init) => {
       finalUrl = input instanceof URL ? input.href : String(input)
       finalBody = String(init?.body)

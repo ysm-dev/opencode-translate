@@ -6,9 +6,8 @@ type ProviderSource = "env" | "config" | "custom" | "api"
 
 export interface ResolvedTranslateOptions {
   model: string
-  triggerKeywords: string[]
+  trigger: string[]
   lang: string
-  apiKey?: string
   verbose: boolean
 }
 

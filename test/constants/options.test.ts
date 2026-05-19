@@ -7,15 +7,13 @@ describe("option resolution", () => {
       resolveOptions({
         lang: "Korean",
         model: "  anthropic/claude-haiku-4-5  ",
-        triggerKeywords: ["", "$go", 123],
-        apiKey: "",
+        trigger: ["", "$go", 123],
         verbose: "yes",
       }),
     ).toEqual({
       model: "anthropic/claude-haiku-4-5",
-      triggerKeywords: ["$go"],
+      trigger: ["$go"],
       lang: "Korean",
-      apiKey: undefined,
       verbose: false,
     })
   })

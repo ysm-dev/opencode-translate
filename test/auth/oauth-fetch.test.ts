@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
 import { __resetAuthCachesForTest, createCredentialResolver } from "../../src/auth"
-import { resolveOptions } from "../../src/constants"
 import { fakeClient } from "./helpers"
 
 beforeEach(() => {
@@ -20,7 +19,6 @@ test("Anthropic OAuth request headers are adapted correctly", async () => {
   let finalHeaders = new Headers()
   const resolver = createCredentialResolver(
     fakeClient([{ id: "anthropic", source: "custom", env: ["ANTHROPIC_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-    resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     {
       fetchImpl: async (input, init) => {
         finalUrl = input instanceof URL ? input.href : String(input)
@@ -48,7 +46,6 @@ test("Anthropic OAuth rewrites messages request bodies", async () => {
   let finalBody = ""
   const resolver = createCredentialResolver(
     fakeClient([{ id: "anthropic", source: "custom", env: ["ANTHROPIC_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-    resolveOptions({ model: "anthropic/claude-haiku-4-5", lang: "Korean" }),
     {
       fetchImpl: async (_input, init) => {
         finalBody = String(init?.body)
@@ -85,7 +82,6 @@ test("OpenAI OAuth rewrites Responses requests to Codex request shape", async ()
   let finalBody = ""
   const resolver = createCredentialResolver(
     fakeClient([{ id: "openai", source: "custom", env: ["OPENAI_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-    resolveOptions({ model: "openai/gpt-5.5", lang: "Korean" }),
     {
       fetchImpl: async (input, init) => {
         finalUrl = input instanceof URL ? input.href : String(input)
@@ -136,7 +132,6 @@ test("OpenAI OAuth converts Codex SSE responses back to JSON for generateText", 
   })
   const resolver = createCredentialResolver(
     fakeClient([{ id: "openai", source: "custom", env: ["OPENAI_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-    resolveOptions({ model: "openai/gpt-5.5", lang: "Korean" }),
     {
       fetchImpl: async () =>
         new Response(
@@ -182,7 +177,6 @@ test("OpenAI OAuth rewrites Chat Completions messages to Codex request shape", a
   let finalBody = ""
   const resolver = createCredentialResolver(
     fakeClient([{ id: "openai", source: "custom", env: ["OPENAI_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-    resolveOptions({ model: "openai/gpt-5.5", lang: "Korean" }),
     {
       fetchImpl: async (_input, init) => {
         finalBody = String(init?.body)
@@ -223,7 +217,6 @@ test("OpenAI OAuth leaves non-OpenAI API URLs on the normal fetch path", async (
   let finalBody = ""
   const resolver = createCredentialResolver(
     fakeClient([{ id: "openai", source: "custom", env: ["OPENAI_API_KEY"], key: "opencode-oauth-dummy-key" }]),
-    resolveOptions({ model: "openai/gpt-5.5", lang: "Korean" }),
     {
       fetchImpl: async (input, init) => {
         finalUrl = input instanceof URL ? input.href : String(input)
@@ -265,7 +258,6 @@ test("GitHub Copilot OAuth exchanges a session token and rewrites enterprise hos
         key: "opencode-oauth-dummy-key",
       },
     ]),
-    resolveOptions({ model: "github-copilot/gpt-4o", lang: "Korean" }),
     {
       packageVersion: "9.9.9",
       fetchImpl: async (input, init) => {

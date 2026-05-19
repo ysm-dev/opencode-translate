@@ -13,7 +13,7 @@ export function buildInboundTranslationError(userLanguage: string, reason: strin
 
 export function buildAuthUnavailableError(providerID: string, envVar: string): Error {
   return new Error(
-    `[${PLUGIN_NAME}:AUTH_UNAVAILABLE] No credential found for provider "${providerID}". Set ${envVar} in the environment, run "opencode auth login ${providerID}", or set options.apiKey in opencode.json.`,
+    `[${PLUGIN_NAME}:AUTH_UNAVAILABLE] No credential found for provider "${providerID}". Set ${envVar} in the environment or run "opencode auth login ${providerID}".`,
   )
 }
 

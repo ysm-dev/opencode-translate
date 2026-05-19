@@ -5,14 +5,14 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
-export function findTriggerMatch(parts: TextPartLike[], triggerKeywords: string[]): TriggerMatch | undefined {
+export function findTriggerMatch(parts: TextPartLike[], trigger: string[]): TriggerMatch | undefined {
   let eligibleIndex = 0
   for (let partArrayIndex = 0; partArrayIndex < parts.length; partArrayIndex += 1) {
     const part = parts[partArrayIndex]
     if (!isUserAuthoredTextPart(part)) continue
 
     let bestForPart: TriggerMatch | undefined
-    for (const keyword of triggerKeywords) {
+    for (const keyword of trigger) {
       const pattern = new RegExp(`(^|[ \\t\\r\\n\\f\\v])${escapeRegex(keyword)}(?=$|[ \\t\\r\\n\\f\\v])`)
       const match = pattern.exec(part.text)
       if (!match) continue

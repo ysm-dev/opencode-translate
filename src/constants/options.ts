@@ -1,4 +1,4 @@
-import { AUTH_ENV_FALLBACK, DEFAULT_TRIGGER_KEYWORDS, PLUGIN_NAME } from "./plugin"
+import { AUTH_ENV_FALLBACK, DEFAULT_TRIGGER, PLUGIN_NAME } from "./plugin"
 import type { ProviderInfo, ResolvedTranslateOptions } from "./types"
 
 export function resolveOptions(options: Record<string, unknown>): ResolvedTranslateOptions {
@@ -22,15 +22,14 @@ export function resolveOptions(options: Record<string, unknown>): ResolvedTransl
     )
   }
 
-  const triggerKeywords = Array.isArray(options.triggerKeywords)
-    ? options.triggerKeywords.filter((value): value is string => typeof value === "string" && value.length > 0)
-    : DEFAULT_TRIGGER_KEYWORDS
+  const trigger = Array.isArray(options.trigger)
+    ? options.trigger.filter((value): value is string => typeof value === "string" && value.length > 0)
+    : DEFAULT_TRIGGER
 
   return {
     model,
-    triggerKeywords: triggerKeywords.length > 0 ? triggerKeywords : [...DEFAULT_TRIGGER_KEYWORDS],
+    trigger: trigger.length > 0 ? trigger : [...DEFAULT_TRIGGER],
     lang,
-    apiKey: typeof options.apiKey === "string" && options.apiKey.length > 0 ? options.apiKey : undefined,
     verbose: options.verbose === true,
   }
 }

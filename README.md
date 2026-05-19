@@ -37,6 +37,5 @@ All subsequent messages in the same session are translated automatically — no 
 | --- | --- | --- | --- |
 | `model` | string | required | Translator model in `provider/model-id` form |
 | `lang` | string | required | Language you speak (e.g. `"Korean"`, `"Japanese"`) |
-| `triggerKeywords` | string[] | `["$en"]` | Keywords that activate translation |
-| `apiKey` | string | — | API key for the translator model (falls back to opencode auth) |
+| `trigger` | string[] | `["$en"]` | Keywords that activate translation |
 | `verbose` | boolean | `false` | Print translation logs |

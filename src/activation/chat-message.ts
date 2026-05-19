@@ -42,7 +42,7 @@ async function activateFromTrigger(
   if (resolved.state || !resolved.canActivate)
     return { state: resolved.state, activatedThisTurn: false, aborted: false }
 
-  const match = findTriggerMatch(output.parts as TextPartLike[], ctx.options.triggerKeywords)
+  const match = findTriggerMatch(output.parts as TextPartLike[], ctx.options.trigger)
   if (!match) return { activatedThisTurn: false, aborted: false }
 
   const part = output.parts[match.partArrayIndex] as TextPartLike & { text: string }

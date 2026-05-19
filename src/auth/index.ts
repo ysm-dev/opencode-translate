@@ -10,7 +10,6 @@ import {
   type PluginClientLike,
   type ProviderInfo,
   parseTranslatorModel,
-  type ResolvedTranslateOptions,
   unwrapData,
 } from "../constants"
 import { buildOAuthFetch } from "./oauth-fetch"
@@ -67,11 +66,7 @@ async function getProvider(client: PluginClientLike, providerID: string): Promis
   }
 }
 
-export function createCredentialResolver(
-  client: PluginClientLike,
-  options: ResolvedTranslateOptions,
-  deps: AuthDependencies = {},
-) {
+export function createCredentialResolver(client: PluginClientLike, deps: AuthDependencies = {}) {
   const credentialCache = new Map<string, ResolvedCredential>()
   const oauthRefreshInflight = new Map<string, Promise<OAuthInfo>>()
   const runtime: AuthRuntime = {
@@ -132,12 +127,6 @@ export function createCredentialResolver(
       }
     }
     if (cached && !(providerID === "openai" && cached.mode === "oauth" && authInfo?.type !== "oauth")) return cached
-
-    if (options.apiKey) {
-      const resolved = { providerID, provider, authInfo, apiKey: options.apiKey, mode: "apiKey" as const }
-      credentialCache.set(providerID, resolved)
-      return resolved
-    }
 
     const providerKey = normalizeProviderKey(provider?.key)
     if (providerKey) {

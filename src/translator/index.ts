@@ -62,7 +62,7 @@ export function createTranslator(
   const sleepImpl = deps.sleep ?? ((ms: number) => sleep(ms))
   const now = deps.now ?? (() => Date.now())
   const generateTextImpl = deps.generateTextImpl ?? generateText
-  const credentialResolver = deps.credentialResolver ?? createCredentialResolver(client, options)
+  const credentialResolver = deps.credentialResolver ?? createCredentialResolver(client)
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TRANSLATE_TIMEOUT_MS
 
   async function translateText(input: TranslateTextInput): Promise<string> {

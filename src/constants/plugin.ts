@@ -1,7 +1,7 @@
 export const PLUGIN_NAME = "opencode-translate"
 export const SPEC_VERSION = 2
 export const LLM_LANGUAGE = "English"
-export const DEFAULT_TRIGGER_KEYWORDS = ["$en"]
+export const DEFAULT_TRIGGER = ["$en"]
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
 export const NONCE_PATTERN = /^[0-9a-f]{32}$/
 export const FAILURE_NOTICE = "_Translation unavailable for this segment._"

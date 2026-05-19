@@ -253,7 +253,7 @@ can and cannot guarantee.
 - On any user message in a **root** session while translation mode is not
   already active (`session.parentID` must be absent; see §4.5), the
   plugin inspects every text part inside the `chat.message` hook.
-- If any text part contains any configured `triggerKeywords` token
+- If any text part contains any configured `trigger` token
   (default `["$en"]`) as a whitespace-separated token, the session is
   marked active.
 - The matched keyword is **stripped** in place before the message is
@@ -484,7 +484,7 @@ translation-enabled one.
   stored order.
 - Trigger matching runs only when no active translation state exists and
   only across those user-authored text parts.
-- For each part in order, and for each keyword in `triggerKeywords`
+- For each part in order, and for each keyword in `trigger`
   order, the plugin searches for the first match of the exact
   ECMAScript pattern `(^|[ \t\r\n\f\v])KEYWORD(?=$|[ \t\r\n\f\v])`
   with `KEYWORD` escaped literally.
@@ -647,35 +647,32 @@ from `"anthropic/claude-haiku-4-5"`), the resolver produces
 
 1. **OpenAI OAuth.** If `P === "openai"` and auth content/files contain an
    OAuth record, use the OAuth request adapter from §6.3.2. This takes
-   precedence over plugin `apiKey`, resolved provider keys, and
-   `OPENAI_API_KEY`.
-2. **Plugin option.** If `options.apiKey` is set in `opencode.json`, use
-   it as `apiKey`. No `fetch` override.
-3. **opencode stored auth via SDK.** Call `client.provider.list()`, find
+   precedence over resolved provider keys and `OPENAI_API_KEY`.
+2. **opencode stored auth via SDK.** Call `client.provider.list()`, find
    `p = result.all.find(x => x.id === P)`:
    - If `p.key` is a non-empty string not equal to `OAUTH_DUMMY_KEY`
      (`"opencode-oauth-dummy-key"`, `packages/opencode/src/auth/index.ts:7`),
      use it as `apiKey`. opencode has already resolved env/API-key auth for
      us, so reusing the resolved value avoids process-env drift between the
      plugin factory and later hook invocations.
-4. **opencode auth content/files.** Read §6.3.2 auth records. If `P` has an
+3. **opencode auth content/files.** Read §6.3.2 auth records. If `P` has an
    API record, use `auth.key` as `apiKey` and preserve metadata for provider
    URL placeholder substitution.
-5. **OAuth request adapter.** If `P` is one of `anthropic`, `openai`, or
+4. **OAuth request adapter.** If `P` is one of `anthropic`, `openai`, or
    `github-copilot`, or if `p.source === "custom"` / `p.key === OAUTH_DUMMY_KEY`,
    and §6.3.2 finds an OAuth record, construct the provider with
    `apiKey: ""` and a custom `fetch` wrapper.
-6. **Stored bearer fallback.** For OAuth records without a dedicated request
+5. **Stored bearer fallback.** For OAuth records without a dedicated request
    adapter, pass the stored `access` token as `apiKey` unless the provider
    options already specify `apiKey`.
-7. **`@ai-sdk/*` package default.** If nothing above resolves, pass no
+6. **`@ai-sdk/*` package default.** If nothing above resolves, pass no
    `apiKey` to the factory and let the `@ai-sdk/*` package read its
    canonical env var(s) on its own (e.g. `@ai-sdk/anthropic` reads
    `ANTHROPIC_API_KEY`; `@ai-sdk/google` reads
    `GOOGLE_GENERATIVE_AI_API_KEY`; `@ai-sdk/openai` reads
    `OPENAI_API_KEY`). This preserves the previous v4 behaviour as a
    fallback.
-8. **Error.** If even step 7 yields a factory that throws at call time
+7. **Error.** If even step 6 yields a factory that throws at call time
    for missing credentials, the resolver translates that into the
    `AUTH_UNAVAILABLE` error (§6.4).
 
@@ -702,7 +699,7 @@ reconstructs the minimum viable authenticated-request shape per provider.
 3. For auth-v2 payloads, active accounts win first; remaining account records
    are mapped by `serviceID` as a fallback.
 4. If no source exists or parsing fails, OAuth/API auth reuse returns
-   `undefined` and the resolver falls through to step 7 of §6.3.1.
+   `undefined` and the resolver falls through to step 6 of §6.3.1.
 
 **Per-provider request shape.**
 
@@ -761,8 +758,8 @@ tool-name `mcp_` prefix rewriting, User-Agent spoof (`claude-cli/2.1.2
 (`opencode-translate/<version>`). If Anthropic rejects such requests
 (401/403/blocked response), the error is surfaced through the normal
 §6.4 failure surfaces (`INBOUND_TRANSLATION_FAILED` or the outbound
-failure trailer); users can switch `model` to an API-key
-provider or configure `options.apiKey`.
+failure trailer); users can switch `model` to an API-key provider or
+configure the provider's canonical env var.
 
 #### 6.3.3 Multi-var providers
 
@@ -820,7 +817,7 @@ templates so callers can display or match them consistently.
 | Condition | Exact thrown message |
 | --- | --- |
 | Fresh-message inbound translation fails after retries | `[opencode-translate:INBOUND_TRANSLATION_FAILED] Failed to translate user message from {sourceLanguage} to en: {reason}` |
-| Resolver finds no usable credential for the translator provider | `[opencode-translate:AUTH_UNAVAILABLE] No credential found for provider "{providerID}". Set {envVar} in the environment, run "opencode auth login {providerID}", or set options.apiKey in opencode.json.` |
+| Resolver finds no usable credential for the translator provider | `[opencode-translate:AUTH_UNAVAILABLE] No credential found for provider "{providerID}". Set {envVar} in the environment or run "opencode auth login {providerID}".` |
 | OAuth refresh fails after retries | `[opencode-translate:OAUTH_REFRESH_FAILED] Failed to refresh OAuth token for provider "{providerID}": {reason}. Re-authenticate with "opencode auth login {providerID}".` |
 
 Earlier drafts also defined a `STALE_CACHE` thrown error fired from
@@ -1048,7 +1045,7 @@ Via `opencode.json`:
   "plugin": [
     ["opencode-translate", {
       "model": "anthropic/claude-haiku-4-5",
-      "triggerKeywords": ["$en"],
+      "trigger": ["$en"],
       "sourceLanguage": "ko",
       "displayLanguage": "ko",
       "verbose": false
@@ -1060,18 +1057,16 @@ Via `opencode.json`:
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `model` | string | Required | Translator model id in `provider/model-id` form understood by `ai`'s provider resolver. |
-| `triggerKeywords` | string[] | `["$en"]` | Tokens whose presence in any inactive root-session user message activates translation mode from that message forward. Matched as whitespace-separated tokens; case-sensitive. |
+| `trigger` | string[] | `["$en"]` | Tokens whose presence in any inactive root-session user message activates translation mode from that message forward. Matched as whitespace-separated tokens; case-sensitive. |
 | `sourceLanguage` | string | `"en"` | The language the user types in. ISO-639-1 preferred (`ko`, `ja`, `zh`, `de`, …). When equal to `"en"`, the **inbound** translation step is a no-op. |
 | `displayLanguage` | string | `"en"` | The language the plugin renders assistant output in. When equal to `"en"`, the **outbound** translation step is a no-op. |
-| `apiKey` | string | `undefined` | Optional. When set, used verbatim as the translator provider's `apiKey` and takes precedence over opencode's stored auth and env vars (§6.3.1), except OpenAI OAuth records always win. Intended for users who want the translator to use a different credential than the main chat. |
 | `verbose` | boolean | `false` | When `true`, logs translation stats via `client.app.log` (visible with `opencode --log-level debug`). |
 
 The LLM-facing language is fixed to English in v1.
 
 **Credential resolution.** Credentials are resolved per §6.3; users
 typically need do nothing beyond the standard `opencode auth login
-<provider>` flow or setting the provider's canonical env var. `apiKey`
-is provided as an escape hatch and is not required for the common case.
+<provider>` flow or setting the provider's canonical env var.
 
 Degenerate configurations:
 
@@ -1411,9 +1406,7 @@ in the README and requires an `ANTHROPIC_API_KEY`.
     `de`, `fr`, `es`.
   - Unknown code falls back to `Translation (<displayLanguage>)`.
 - **`auth.test.ts`**
-  - Priority order: OpenAI OAuth beats plugin `options.apiKey` and resolved
-    provider keys; for other providers, plugin `options.apiKey` beats an
-    `api`-source `provider.key` from a mocked `client.provider.list()`.
+  - Priority order: OpenAI OAuth beats resolved provider keys.
   - `api`-source `provider.key` beats `env`-source `provider.key`
     (though in practice the mocked list would only emit one source per
     provider; this test asserts the resolver does not mis-interpret
@@ -1689,7 +1682,7 @@ inline makes future re-reads faster.
   OAuth-backed providers (`anthropic`, `openai` / Codex,
   `github-copilot`), reconstructs the refresh + custom-fetch flow
   directly from `auth.json`. Priority order: OpenAI OAuth first when present,
-  otherwise `options.apiKey` → opencode stored auth → env var (ai-sdk default fallback). OAuth
+  otherwise opencode stored auth → env var (ai-sdk default fallback). OAuth
   refresh is coalesced per providerID to avoid the refresh-token race
   inherent in opencode's own plugins, and refreshed tokens are persisted
   back via `client.auth.set` to keep opencode and the plugin in sync.
@@ -1709,10 +1702,6 @@ inline makes future re-reads faster.
   `OAUTH_REFRESH_FAILED` are added with exact, stable messages that
   include actionable remediation (env var name and `opencode auth
   login` command).
-- **New `apiKey` config option (§8).** Optional plugin override that
-  beats both opencode stored auth and env vars, except OpenAI OAuth records
-  remain preferred. Supports users who want the translator to use a different
-  credential from the main chat provider.
 - **New `src/auth.ts` module and `auth.test.ts` suite (§13, §14.1).**
   Isolates credential resolution, OAuth refresh coalescing, and custom
   fetch construction from the rest of the plugin so translator logic
@@ -1758,7 +1747,7 @@ Decisions taken, in order:
     technically infeasible with today's hook surface (§3.3); every
     text part is translated in v1.
 19. Activation announcement: a plugin-owned banner part.
-20. Config options: `model`, `triggerKeywords`,
+20. Config options: `model`, `trigger`,
     `sourceLanguage`, `displayLanguage`, `verbose`.
 21. Translator prompt: strong instructions + 2 few-shots +
     placeholder rule.
@@ -1772,7 +1761,7 @@ Decisions taken, in order:
     honouring `OPENCODE_AUTH_CONTENT` for OAuth records). OAuth reuse
     is always on for `anthropic`, `openai` (Codex), and
     `github-copilot`. Priority order is OpenAI OAuth first when present,
-    otherwise `options.apiKey` → opencode stored auth → env var. No config toggle; legal/ToS risk for
+    otherwise opencode stored auth → env var. No config toggle; legal/ToS risk for
     Anthropic OAuth is documented in §6.3.5.
 
 ## 19. References
