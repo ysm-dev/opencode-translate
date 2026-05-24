@@ -1,5 +1,7 @@
 # opencode-translate
 
+![banner](https://github.com/user-attachments/assets/0bb6739c-abc5-4c3e-837e-2aaf5533a359)
+
 ## Install
 
 ```bash
