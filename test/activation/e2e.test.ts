@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import { __resetActivationCacheForTest, createHooks } from "../../src/activation"
-import type { MessageWithPartsLike, PluginClientLike, TextPartLike, TranslateState } from "../../src/constants"
+import type { MessageWithPartsLike, PluginClientLike, TextPartLike } from "../../src/constants"
 import { composeTranslatedAssistantText, composeTranslationFailureText } from "../../src/formatting"
 import { activeStateMetadata, textPart } from "../translator/helpers"
 
@@ -55,17 +55,13 @@ describe("translation hook E2E flow", () => {
     expect((chatOutput.parts[1] as TextPartLike).text).toBe("EN:안녕")
     expect((chatOutput.parts[2] as TextPartLike).metadata?.translate_role).toBe("activation_banner")
 
-    const state = (chatOutput.parts[2] as TextPartLike).metadata as unknown as TranslateState
     const transformOutput = {
       messages: [
         { info: { id: "msg_user", sessionID: "ses_1", role: "user" }, parts: chatOutput.parts },
         {
           info: { id: "msg_assistant", sessionID: "ses_1", role: "assistant" },
           parts: [
-            textPart(
-              "a1",
-              composeTranslatedAssistantText("English answer", "한국어 번역", "한국어 답변", state.translate_nonce),
-            ),
+            textPart("a1", composeTranslatedAssistantText("English answer", "Translation (Korean)", "한국어 답변")),
             { ...textPart("file", "ignored"), type: "file" },
           ],
         },
@@ -145,7 +141,7 @@ describe("translation hook E2E flow", () => {
 
     await hooks["experimental.text.complete"]!({ sessionID: "ses_1", messageID: "msg_assistant" } as never, output)
 
-    expect(output.text).toBe(composeTranslationFailureText("English text", "0123456789abcdef0123456789abcdef"))
+    expect(output.text).toBe(composeTranslationFailureText("English text"))
     expect(logs).toEqual(["outbound translator unavailable"])
   })
 })

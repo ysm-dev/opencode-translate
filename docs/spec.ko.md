@@ -1036,7 +1036,7 @@ LLM 대면 언어는 v1에서 영어로 고정된다.
 나타난다:
 
 ```
-✓ Translation mode enabled · translator: claude-haiku-4-5 · source: ko · display: ko
+✓ Translation mode enabled · model: claude-haiku-4-5 · source: ko · display: ko
 ```
 
 ### 10.4 실패 표면

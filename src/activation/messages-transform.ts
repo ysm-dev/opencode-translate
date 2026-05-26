@@ -1,6 +1,7 @@
 import type { Hooks } from "@opencode-ai/plugin"
 import { isTextPart, type MessageWithPartsLike } from "../constants"
 import { extractEnglishHistoryText } from "../formatting"
+import { getDisplayLanguageLabel } from "../labels"
 import { logError } from "./logging"
 import { isTranslatedUserDisplayPart } from "./metadata"
 import { resolveSessionState } from "./state"
@@ -18,6 +19,11 @@ export function createMessagesTransformHook(ctx: HookContext): MessagesTransform
       const activeState = resolved.state
       if (!activeState) return
 
+      const extractContext = {
+        nonce: activeState.translate_nonce,
+        label: getDisplayLanguageLabel(activeState.translate_user_lang),
+      }
+
       for (const message of output.messages as MessageWithPartsLike[]) {
         if (message.info.role === "user") {
           for (const part of message.parts) {
@@ -28,7 +34,7 @@ export function createMessagesTransformHook(ctx: HookContext): MessagesTransform
 
         if (message.info.role !== "assistant") continue
         for (const part of message.parts) {
-          if (isTextPart(part)) part.text = extractEnglishHistoryText(part.text, activeState.translate_nonce)
+          if (isTextPart(part)) part.text = extractEnglishHistoryText(part.text, extractContext)
         }
       }
     } catch (error) {

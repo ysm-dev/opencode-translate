@@ -38,10 +38,9 @@ export function createTextCompleteHook(ctx: HookContext): TextCompleteHook {
           output.text,
           getDisplayLanguageLabel(activeState.translate_user_lang),
           translated,
-          activeState.translate_nonce,
         )
       } catch (error) {
-        output.text = composeTranslationFailureText(output.text, activeState.translate_nonce)
+        output.text = composeTranslationFailureText(output.text)
         await logError(ctx.client, error)
       }
     } catch (error) {

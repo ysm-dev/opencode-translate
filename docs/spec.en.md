@@ -1157,7 +1157,7 @@ On the very first turn of a translation-enabled session, the
 plugin-owned activation banner appears before the main LLM response:
 
 ```
-✓ Translation mode enabled · translator: claude-haiku-4-5 · source: ko · display: ko
+✓ Translation mode enabled · model: claude-haiku-4-5 · source: ko · display: ko
 ```
 
 ### 10.4 Failure surfaces
