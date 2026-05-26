@@ -31,7 +31,7 @@ describe("activation chat.message", () => {
     expect(output.parts).toHaveLength(3)
     expect((output.parts[0] as TextPartLike).text).toContain("hello world\n\n→ EN: EN:hello world")
     expect((output.parts[0] as TextPartLike).text).toContain("✓ Translation mode enabled")
-    expect((output.parts[0] as TextPartLike).text).toContain("model: claude-haiku-4-5")
+    expect((output.parts[0] as TextPartLike).text).toContain("model: anthropic/claude-haiku-4-5")
     expect((output.parts[0] as TextPartLike).text).not.toContain("translator:")
     expect((output.parts[0] as TextPartLike).text).not.toContain("$en")
     expect((output.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:hello world")
