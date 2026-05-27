@@ -2,6 +2,10 @@
 
 ![banner](https://github.com/user-attachments/assets/0bb6739c-abc5-4c3e-837e-2aaf5533a359)
 
+## Demo
+
+<video src="https://github.com/ysm-dev/opencode-translate/raw/main/assets/demo.mp4" autoplay loop muted playsinline></video>
+
 ## Why
 
 LLMs are worse in non-English. Benchmarks confirm it on every frontier model.
