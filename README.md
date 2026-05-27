@@ -12,7 +12,6 @@ LLMs are worse in non-English. Benchmarks confirm it on every frontier model.
 
 - **Claude Opus 4.7 / GPT-5.5 / Gemini 3.1 Pro**: identical coding tasks scored **5/5 in English** but dropped to **0–1/5 in Arabic and Korean** ([LILT, 2025](https://lilt.com/blog/multilingual-ai-coding-gap-non-english-developers)).
 - **Anthropic's own numbers**: Japanese 96.9%, Korean 96.6%, Yoruba 80.3% — English is always the baseline ([Anthropic docs](https://platform.claude.com/docs/en/build-with-claude/multilingual-support)).
-- **Translation Barrier Hypothesis** (JHU, IJCNLP 2025): LLMs reason in an English-dominant latent space, then translate at the last layers — every translation step is a source of error.
 - **Token tax**: Korean ~1.25×, Japanese ~1.25×, Arabic ~3× more tokens per equivalent content. Higher cost, smaller effective context.
 
 This plugin lets you write in your language while the model works in English — best of both worlds.
