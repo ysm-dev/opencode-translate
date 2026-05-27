@@ -4,7 +4,7 @@
 
 ## Demo
 
-<video src="https://github.com/ysm-dev/opencode-translate/raw/main/assets/demo.mp4" autoplay loop muted playsinline></video>
+![demo](./assets/demo.gif)
 
 ## Why
 
