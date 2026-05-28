@@ -32,7 +32,7 @@ Add to `~/.config/opencode/opencode.jsonc`:
 {
   "plugin": [
     ["opencode-translate", {
-      "model": "anthropic/claude-haiku-4-5", // model to use for translation
+      "model": "openai/gpt-5.4-mini", // model to use for translation
       "lang": "Korean"                        // language you speak
     }]
   ]
