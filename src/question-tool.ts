@@ -29,6 +29,7 @@ export interface QuestionArgs {
 export interface QuestionSnapshot {
   original: TextRecord[]
   translated: TextRecord[]
+  userLanguage: string
 }
 
 export interface QuestionToolOutput {
@@ -54,6 +55,10 @@ function cloneQuestion(q: TextRecord): TextRecord {
 
 export function snapshotQuestions(args: QuestionArgs): TextRecord[] {
   return args.questions.map(cloneQuestion)
+}
+
+export function restoreQuestionArgs(args: QuestionArgs, original: readonly TextRecord[]): void {
+  args.questions.splice(0, args.questions.length, ...original.map(cloneQuestion))
 }
 
 export function isQuestionArgs(value: unknown): value is QuestionArgs {
@@ -142,6 +147,32 @@ async function restoreLabel(
   }
 }
 
+async function restoreQuestionAnswers(
+  original: readonly TextRecord[],
+  translated: readonly TextRecord[],
+  answers: readonly (readonly string[])[],
+  options: RestoreQuestionOutputOptions = {},
+): Promise<string[][]> {
+  return Promise.all(
+    original.map(async (q, i) => {
+      const selected = answers[i] ?? []
+      const translatedOptions = translated[i]?.options ?? []
+      const originalOptions = q.options
+      return Promise.all(selected.map((label) => restoreLabel(label, translatedOptions, originalOptions, options)))
+    }),
+  )
+}
+
+function formatRestoredOutput(original: readonly TextRecord[], answers: readonly (readonly string[])[]): string {
+  const formattedParts = original.map((q, i) => {
+    const restored = answers[i] ?? []
+    const rendered = restored.length > 0 ? restored.join(", ") : "Unanswered"
+    return `"${q.question}"="${rendered}"`
+  })
+  const formatted = formattedParts.join(", ")
+  return `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`
+}
+
 // Reconstruct the exact output string the question tool would have produced
 // if it had been called with the original English args. Mirrors the format
 // in `packages/opencode/src/tool/question.ts` (as of opencode 1.14.x).
@@ -151,20 +182,18 @@ export async function buildRestoredOutput(
   answers: readonly (readonly string[])[],
   options: RestoreQuestionOutputOptions = {},
 ): Promise<string> {
-  const formattedParts = await Promise.all(
-    original.map(async (q, i) => {
-      const selected = answers[i] ?? []
-      const translatedOptions = translated[i]?.options ?? []
-      const originalOptions = q.options
-      const restored = await Promise.all(
-        selected.map((label) => restoreLabel(label, translatedOptions, originalOptions, options)),
-      )
-      const rendered = restored.length > 0 ? restored.join(", ") : "Unanswered"
-      return `"${q.question}"="${rendered}"`
-    }),
-  )
-  const formatted = formattedParts.join(", ")
-  return `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`
+  const restoredAnswers = await restoreQuestionAnswers(original, translated, answers, options)
+  return formatRestoredOutput(original, restoredAnswers)
+}
+
+function mutableMetadata(output: QuestionToolOutput): Record<string, unknown> {
+  if (output.metadata && typeof output.metadata === "object" && !Array.isArray(output.metadata)) {
+    return output.metadata as Record<string, unknown>
+  }
+
+  const metadata: Record<string, unknown> = {}
+  output.metadata = metadata
+  return metadata
 }
 
 export async function restoreQuestionOutput(
@@ -175,5 +204,7 @@ export async function restoreQuestionOutput(
   if (typeof output.output !== "string") return
   const answersRaw = (output.metadata as { answers?: readonly (readonly string[])[] } | undefined)?.answers
   const answers = Array.isArray(answersRaw) ? answersRaw : []
-  output.output = await buildRestoredOutput(snapshot.original, snapshot.translated, answers, options)
+  const restoredAnswers = await restoreQuestionAnswers(snapshot.original, snapshot.translated, answers, options)
+  output.output = formatRestoredOutput(snapshot.original, restoredAnswers)
+  mutableMetadata(output).answers = restoredAnswers
 }

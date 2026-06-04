@@ -108,12 +108,33 @@ describe("question-tool helpers", () => {
   })
 
   test("restoreQuestionOutput no-ops when output.output is missing", async () => {
-    const snapshot = { original: snapshotQuestions(sampleArgs), translated: snapshotQuestions(sampleArgs) }
+    const snapshot = {
+      original: snapshotQuestions(sampleArgs),
+      translated: snapshotQuestions(sampleArgs),
+      userLanguage: "Korean",
+    }
     const out: { title: string; metadata: { answers: string[][] } } = {
       title: "Asked 1 question",
       metadata: { answers: [["Yes, delete"]] },
     }
     await restoreQuestionOutput(out as never, snapshot)
     expect((out as unknown as { output?: string }).output).toBeUndefined()
+  })
+
+  test("restoreQuestionOutput rewrites metadata answers", async () => {
+    const original = snapshotQuestions(sampleArgs)
+    const translated = snapshotQuestions(sampleArgs)
+    translated[0].question = "확실합니까?"
+    translated[0].options[0].label = "예, 삭제"
+    translated[0].options[1].label = "아니오, 취소"
+    const out = {
+      output: `User has answered your questions: "확실합니까?"="예, 삭제". You can now continue with the user's answers in mind.`,
+      metadata: { answers: [["예, 삭제"]] },
+    }
+
+    await restoreQuestionOutput(out, { original, translated, userLanguage: "Korean" })
+
+    expect(out.output).toContain('"Are you sure?"="Yes, delete"')
+    expect(out.metadata.answers).toEqual([["Yes, delete"]])
   })
 })

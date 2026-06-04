@@ -72,10 +72,18 @@ test("tool.execute.before no-ops for non-question tools and English language", a
 })
 
 test("tool.execute.after restores the English output string", async () => {
+  const calls: string[] = []
   const hooks = createHooks(
     { client: fakeClient(), directory: "/workspace" } as never,
     { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
-    { translator: { translateText: async ({ text }) => `[ko]${text}` } },
+    {
+      translator: {
+        translateText: async ({ text, direction }) => {
+          calls.push(`${direction}:${text}`)
+          return `[ko]${text}`
+        },
+      },
+    },
   )
 
   const args = cloneSampleArgs()
@@ -93,6 +101,10 @@ test("tool.execute.after restores the English output string", async () => {
   expect(afterOutput.output).toBe(
     'User has answered your questions: "Are you sure?"="Yes, delete". You can now continue with the user\'s answers in mind.',
   )
+  expect(afterOutput.metadata.answers).toEqual([["Yes, delete"]])
+  expect(args.questions[0].question).toBe("Are you sure?")
+  expect(args.questions[0].options[0].label).toBe("Yes, delete")
+  expect(calls).not.toContain("inbound:[ko]Yes, delete")
 })
 
 test("tool.execute.after translates free-text custom answers", async () => {
@@ -125,6 +137,8 @@ test("tool.execute.after translates free-text custom answers", async () => {
     afterOutput as never,
   )
   expect(afterOutput.output).toContain('"Are you sure?"="EN:직접 입력한 답변"')
+  expect(afterOutput.metadata.answers).toEqual([["EN:직접 입력한 답변"]])
+  expect(args.questions[0].question).toBe("Are you sure?")
   expect(calls).toContain("inbound:직접 입력한 답변")
 })
 
@@ -158,6 +172,8 @@ test("tool.execute.after does not translate custom answers when language is Engl
     afterOutput as never,
   )
   expect(afterOutput.output).toContain('"Are you sure?"="custom answer"')
+  expect(afterOutput.metadata.answers).toEqual([["custom answer"]])
+  expect(args.questions[0].question).toBe("Are you sure?")
   expect(calls).toEqual([])
 })
 

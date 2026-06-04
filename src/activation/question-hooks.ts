@@ -4,6 +4,7 @@ import {
   isQuestionArgs,
   type QuestionSnapshot,
   type QuestionToolOutput,
+  restoreQuestionArgs,
   restoreQuestionOutput,
   snapshotQuestions,
   translateQuestionArgs,
@@ -58,7 +59,11 @@ export function createToolExecuteBeforeHook(ctx: HookContext): NonNullable<Hooks
         }
       }
 
-      questionSnapshots.set(input.callID, { original, translated: snapshotQuestions(args) })
+      questionSnapshots.set(input.callID, {
+        original,
+        translated: snapshotQuestions(args),
+        userLanguage: activeState.translate_user_lang,
+      })
       pruneQuestionSnapshots()
     } catch (error) {
       await logError(ctx.client, error)
@@ -73,10 +78,9 @@ export function createToolExecuteAfterHook(ctx: HookContext): NonNullable<Hooks[
       const snapshot = questionSnapshots.get(input.callID)
       if (!snapshot) return
       questionSnapshots.delete(input.callID)
+      if (isQuestionArgs(input.args)) restoreQuestionArgs(input.args, snapshot.original)
 
-      const resolved = await resolveSessionState(ctx.client, ctx.directory, input.sessionID)
-      const activeState = resolved.state
-      if (!activeState || activeState.translate_user_lang === LLM_LANGUAGE) {
+      if (snapshot.userLanguage === LLM_LANGUAGE) {
         await restoreQuestionOutput(output as QuestionToolOutput, snapshot)
         return
       }
@@ -85,15 +89,12 @@ export function createToolExecuteAfterHook(ctx: HookContext): NonNullable<Hooks[
         translateCustomAnswer: (text: string) =>
           ctx.translator.translateText({
             text,
-            sourceLanguage: activeState.translate_user_lang,
+            sourceLanguage: snapshot.userLanguage,
             targetLanguage: LLM_LANGUAGE,
             direction: "inbound",
           }),
         onTranslationError: async (error) => {
-          await logError(
-            ctx.client,
-            buildInboundTranslationError(activeState.translate_user_lang, normalizeReason(error)),
-          )
+          await logError(ctx.client, buildInboundTranslationError(snapshot.userLanguage, normalizeReason(error)))
         },
       })
     } catch (error) {
