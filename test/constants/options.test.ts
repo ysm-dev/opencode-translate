@@ -7,12 +7,23 @@ describe("option resolution", () => {
       resolveOptions({
         lang: "Korean",
         model: "  anthropic/claude-haiku-4-5  ",
+        variant: " minimal ",
         trigger: ["", "$go", 123],
         verbose: "yes",
       }),
     ).toEqual({
       model: "anthropic/claude-haiku-4-5",
+      variant: "minimal",
       trigger: ["$go"],
+      lang: "Korean",
+      verbose: false,
+    })
+  })
+
+  test("resolveOptions omits blank variants", () => {
+    expect(resolveOptions({ lang: "Korean", model: "anthropic/claude-haiku-4-5", variant: "  " })).toEqual({
+      model: "anthropic/claude-haiku-4-5",
+      trigger: ["$en"],
       lang: "Korean",
       verbose: false,
     })

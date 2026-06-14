@@ -130,6 +130,140 @@ test("OpenAI reasoning translators omit unsupported temperature", async () => {
     direction: "inbound",
   })
   expect(request?.temperature).toBeUndefined()
+  expect(request?.providerOptions).toBeUndefined()
+})
+
+test("translator passes configured OpenAI variant as providerOptions", async () => {
+  let request: Record<string, unknown> | undefined
+  const translator = createTranslator(fakeClient([]), testOptions({ model: "openai/gpt-5.5", variant: "minimal" }), {
+    credentialResolver: {
+      resolve: async () => ({
+        providerID: "openai",
+        provider: {
+          id: "openai",
+          source: "env" as const,
+          env: ["OPENAI_API_KEY"],
+          models: {
+            "gpt-5.5": {
+              id: "gpt-5.5",
+              api: { id: "gpt-5.5", npm: "@ai-sdk/openai" },
+              variants: { minimal: { reasoningEffort: "minimal" } },
+            },
+          },
+        },
+        apiKey: "test-key",
+        mode: "apiKey" as const,
+      }),
+      isMissingCredentialError: () => false,
+      authUnavailable: () => new Error("unused"),
+      envFallback: "OPENAI_API_KEY",
+    },
+    generateTextImpl: async (input) => {
+      request = input as Record<string, unknown>
+      return { text: "hello" } as never
+    },
+    sleep: async () => undefined,
+  })
+
+  await translator.translateText({
+    text: "안녕",
+    sourceLanguage: "Korean",
+    targetLanguage: "English",
+    direction: "inbound",
+  })
+  expect(request?.providerOptions).toEqual({ openai: { reasoningEffort: "minimal" } })
+})
+
+test("translator passes configured Anthropic variant as providerOptions", async () => {
+  let request: Record<string, unknown> | undefined
+  const translator = createTranslator(
+    fakeClient([]),
+    testOptions({ model: "anthropic/claude-opus-4-8", variant: "max" }),
+    {
+      credentialResolver: {
+        resolve: async () => ({
+          providerID: "anthropic",
+          provider: {
+            id: "anthropic",
+            source: "env" as const,
+            env: ["ANTHROPIC_API_KEY"],
+            models: {
+              "claude-opus-4-8": {
+                id: "claude-opus-4-8",
+                api: { id: "claude-opus-4-8", npm: "@ai-sdk/anthropic" },
+                variants: { max: { thinking: { type: "enabled", budgetTokens: 31_999 } } },
+              },
+            },
+          },
+          apiKey: "test-key",
+          mode: "apiKey" as const,
+        }),
+        isMissingCredentialError: () => false,
+        authUnavailable: () => new Error("unused"),
+        envFallback: "ANTHROPIC_API_KEY",
+      },
+      generateTextImpl: async (input) => {
+        request = input as Record<string, unknown>
+        return { text: "hello" } as never
+      },
+      sleep: async () => undefined,
+    },
+  )
+
+  await translator.translateText({
+    text: "안녕",
+    sourceLanguage: "Korean",
+    targetLanguage: "English",
+    direction: "inbound",
+  })
+  expect(request?.providerOptions).toEqual({
+    anthropic: { thinking: { type: "enabled", budgetTokens: 31_999 } },
+  })
+})
+
+test("unknown variants fail before generateText", async () => {
+  let calls = 0
+  const translator = createTranslator(fakeClient([]), testOptions({ variant: "max" }), {
+    credentialResolver: {
+      resolve: async () => ({
+        providerID: "anthropic",
+        provider: {
+          id: "anthropic",
+          source: "env" as const,
+          env: ["ANTHROPIC_API_KEY"],
+          models: {
+            "claude-haiku-4-5": {
+              id: "claude-haiku-4-5",
+              api: { id: "claude-haiku-4-5", npm: "@ai-sdk/anthropic" },
+              variants: { high: { thinking: { type: "enabled", budgetTokens: 16_000 } } },
+            },
+          },
+        },
+        apiKey: "test-key",
+        mode: "apiKey" as const,
+      }),
+      isMissingCredentialError: () => false,
+      authUnavailable: () => new Error("unused"),
+      envFallback: "ANTHROPIC_API_KEY",
+    },
+    generateTextImpl: async () => {
+      calls += 1
+      return { text: "hello" } as never
+    },
+    sleep: async () => undefined,
+  })
+
+  await expect(
+    translator.translateText({
+      text: "안녕",
+      sourceLanguage: "Korean",
+      targetLanguage: "English",
+      direction: "inbound",
+    }),
+  ).rejects.toThrow(
+    '[opencode-translate:INVALID_VARIANT] options.variant "max" is not available for "anthropic/claude-haiku-4-5". Available variants: high.',
+  )
+  expect(calls).toBe(0)
 })
 
 test("missing credentials surface the exact auth-unavailable error", async () => {

@@ -13,6 +13,7 @@ import { buildSystemPrompt, buildUserPrompt, unwrapEchoedTextEnvelope } from "..
 import { __resetSyntheticPartIDForTest } from "./part-id"
 import {
   __resetProviderFactoryCacheForTest,
+  buildVariantProviderOptions,
   instantiateModel,
   instantiateProvider,
   loadFactory,
@@ -73,6 +74,7 @@ export function createTranslator(
     const { providerID, modelID } = parseTranslatorModel(options.model)
     const credentials = await credentialResolver.resolve(options.model)
     const modelInfo = resolveModelInfo(credentials.provider, modelID)
+    const variantProviderOptions = buildVariantProviderOptions(providerID, modelID, modelInfo, options.variant)
     const factory = await loadFactory(providerID, modelInfo)
     const provider = instantiateProvider(factory, providerID, credentials, modelInfo)
     const providerOptions = { ...(credentials.provider?.options ?? {}), ...(modelInfo.options ?? {}) }
@@ -85,6 +87,7 @@ export function createTranslator(
             model,
             system: buildSystemPrompt(input),
             ...(supportsTemperature(providerID, modelID, modelInfo) ? { temperature: 0 } : {}),
+            ...(variantProviderOptions ? { providerOptions: variantProviderOptions } : {}),
             prompt: buildUserPrompt(input),
           }),
           timeoutMs,

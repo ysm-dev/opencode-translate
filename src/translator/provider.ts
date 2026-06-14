@@ -1,4 +1,4 @@
-import type { AuthInfo, FetchLike, ProviderInfo, ProviderModelInfo } from "../constants"
+import { type AuthInfo, type FetchLike, PLUGIN_NAME, type ProviderInfo, type ProviderModelInfo } from "../constants"
 
 const providerFactoryCache = new Map<string, unknown>()
 
@@ -22,6 +22,26 @@ const CREATE_EXPORT_FALLBACK: Record<string, string[]> = {
   "@ai-sdk/openai-compatible": ["createOpenAICompatible"],
   "@openrouter/ai-sdk-provider": ["createOpenRouter", "openrouter"],
 }
+
+const PROVIDER_OPTIONS_KEY: Record<string, string> = {
+  "@ai-sdk/amazon-bedrock": "bedrock",
+  "@ai-sdk/amazon-bedrock/mantle": "openai",
+  "@ai-sdk/anthropic": "anthropic",
+  "@ai-sdk/azure": "openai",
+  "@ai-sdk/gateway": "gateway",
+  "@ai-sdk/github-copilot": "openai",
+  "@ai-sdk/google": "google",
+  "@ai-sdk/google-vertex": "vertex",
+  "@ai-sdk/google-vertex/anthropic": "anthropic",
+  "@ai-sdk/openai": "openai",
+  "@openrouter/ai-sdk-provider": "openrouter",
+  "ai-gateway-provider": "openaiCompatible",
+}
+
+type JsonValue = null | string | number | boolean | JsonObject | JsonArray
+type JsonObject = { [key: string]: JsonValue | undefined }
+type JsonArray = JsonValue[]
+type VariantProviderOptions = Record<string, JsonObject>
 
 interface ProviderCredentials {
   provider?: ProviderInfo
@@ -71,6 +91,40 @@ export async function loadFactory(providerID: string, model?: ProviderModelInfo)
 
 export function resolveModelInfo(provider: ProviderInfo | undefined, modelID: string): ProviderModelInfo {
   return provider?.models?.[modelID] ?? { id: modelID, api: { id: modelID } }
+}
+
+function sdkProviderOptionsKey(providerID: string, model?: ProviderModelInfo): string {
+  const packageName = model?.api?.npm
+  if (packageName && PROVIDER_OPTIONS_KEY[packageName]) return PROVIDER_OPTIONS_KEY[packageName]
+  if (packageName === "@ai-sdk/openai-compatible" || packageName === "@ai-sdk/openai") return providerID.split(".")[0]
+  return providerID
+}
+
+function invalidVariantError(providerID: string, modelID: string, model: ProviderModelInfo, variant: string) {
+  const variants = Object.keys(model.variants ?? {}).sort()
+  const modelName = `${providerID}/${modelID}`
+  if (variants.length === 0) {
+    return new Error(
+      `[${PLUGIN_NAME}:INVALID_VARIANT] options.variant "${variant}" is not available for "${modelName}". This model has no configurable variants.`,
+    )
+  }
+  return new Error(
+    `[${PLUGIN_NAME}:INVALID_VARIANT] options.variant "${variant}" is not available for "${modelName}". Available variants: ${variants.join(", ")}.`,
+  )
+}
+
+export function buildVariantProviderOptions(
+  providerID: string,
+  modelID: string,
+  model: ProviderModelInfo,
+  variant?: string,
+): VariantProviderOptions | undefined {
+  if (!variant) return undefined
+  const selected = model.variants?.[variant]
+  if (!selected) throw invalidVariantError(providerID, modelID, model, variant)
+  const providerOptions = selected as JsonObject
+  if (model.api?.npm === "@ai-sdk/azure") return { openai: providerOptions, azure: providerOptions }
+  return { [sdkProviderOptionsKey(providerID, model)]: providerOptions }
 }
 
 function headerRecord(value: unknown): Record<string, string> {

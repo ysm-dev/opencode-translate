@@ -21,6 +21,7 @@ export function resolveOptions(options: Record<string, unknown>): ResolvedTransl
       `[${PLUGIN_NAME}:INVALID_OPTIONS] options.lang is required. Set it to the user's language, e.g. "Korean" or "Japanese".`,
     )
   }
+  const variant = typeof options.variant === "string" ? options.variant.trim() : ""
 
   const rawTrigger = Array.isArray(options.trigger)
     ? options.trigger
@@ -31,6 +32,7 @@ export function resolveOptions(options: Record<string, unknown>): ResolvedTransl
 
   return {
     model,
+    ...(variant ? { variant } : {}),
     trigger: trigger.length > 0 ? trigger : [...DEFAULT_TRIGGER],
     lang,
     verbose: options.verbose === true,

@@ -6,6 +6,7 @@ type ProviderSource = "env" | "config" | "custom" | "api"
 
 export interface ResolvedTranslateOptions {
   model: string
+  variant?: string
   trigger: string[]
   lang: string
   verbose: boolean
@@ -67,6 +68,7 @@ export interface ProviderModelInfo {
   }
   headers?: Record<string, string>
   options?: Record<string, unknown>
+  variants?: Record<string, Record<string, unknown>>
   capabilities?: {
     temperature?: boolean
   }
