@@ -10,7 +10,6 @@ describe("option resolution", () => {
         variant: " minimal ",
         trigger: ["", "$go", 123],
         verbose: "yes",
-        assistantTranslation: "final-message",
       }),
     ).toEqual({
       model: "anthropic/claude-haiku-4-5",
@@ -18,7 +17,6 @@ describe("option resolution", () => {
       trigger: ["$go"],
       lang: "Korean",
       verbose: false,
-      assistantTranslation: "final-message",
     })
   })
 
@@ -28,18 +26,7 @@ describe("option resolution", () => {
       trigger: ["$en"],
       lang: "Korean",
       verbose: false,
-      assistantTranslation: "final-message",
     })
-  })
-
-  test("resolveOptions rejects invalid assistant translation modes", () => {
-    expect(() =>
-      resolveOptions({
-        lang: "Korean",
-        model: "anthropic/claude-haiku-4-5",
-        assistantTranslation: "after-loop",
-      }),
-    ).toThrow('options.assistantTranslation must be "each-part" or "final-message"')
   })
 
   test("resolveOptions accepts legacy triggerKeywords configuration", () => {

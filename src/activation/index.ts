@@ -2,7 +2,6 @@ import type { Hooks, PluginInput, PluginOptions } from "@opencode-ai/plugin"
 import { type PluginClientLike, resolveOptions } from "../constants"
 import { createTranslator } from "../translator"
 import { createChatMessageHook } from "./chat-message"
-import { createEventHook } from "./event"
 import { createMessagesTransformHook } from "./messages-transform"
 import { createToolExecuteAfterHook, createToolExecuteBeforeHook, resetQuestionSnapshots } from "./question-hooks"
 import { resetSessionStateCache } from "./state"
@@ -25,19 +24,15 @@ export function createHooks(ctx: PluginInput, rawOptions: PluginOptions = {}, de
   const hookContext: HookContext = {
     client,
     directory: ctx.directory,
-    serverUrl: ctx.serverUrl,
     options,
     translator: deps.translator ?? createTranslator(client, options),
   }
 
-  const hooks: Hooks = {
+  return {
     "chat.message": createChatMessageHook(hookContext),
     "experimental.chat.messages.transform": createMessagesTransformHook(hookContext),
     "experimental.text.complete": createTextCompleteHook(hookContext),
     "tool.execute.before": createToolExecuteBeforeHook(hookContext),
     "tool.execute.after": createToolExecuteAfterHook(hookContext),
   }
-
-  if (options.assistantTranslation === "final-message") hooks.event = createEventHook(hookContext)
-  return hooks
 }

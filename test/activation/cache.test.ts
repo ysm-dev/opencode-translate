@@ -13,7 +13,7 @@ describe("activation session cache", () => {
     const calls: string[] = []
     const hooks = createHooks(
       { client: counted.client, directory: "/workspace" } as never,
-      { model: "anthropic/claude-haiku-4-5", lang: "Korean", assistantTranslation: "each-part" },
+      { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
       {
         translator: {
           translateText: async ({ text, direction }) => {
@@ -45,7 +45,7 @@ describe("activation session cache", () => {
     const counted = countingClient([])
     const hooks = createHooks(
       { client: counted.client, directory: "/workspace" } as never,
-      { model: "anthropic/claude-haiku-4-5", lang: "Korean", assistantTranslation: "each-part" },
+      { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
       {
         translator: {
           translateText: async ({ text }) => {
@@ -86,7 +86,7 @@ describe("activation session cache", () => {
     const calls: string[] = []
     const hooks = createHooks(
       { client: counted.client, directory: "/workspace" } as never,
-      { model: "anthropic/claude-haiku-4-5", lang: "Korean", assistantTranslation: "each-part" },
+      { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
       {
         translator: {
           translateText: async ({ text, direction }) => {

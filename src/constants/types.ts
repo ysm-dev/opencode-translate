@@ -10,10 +10,7 @@ export interface ResolvedTranslateOptions {
   trigger: string[]
   lang: string
   verbose: boolean
-  assistantTranslation: AssistantTranslationMode
 }
-
-export type AssistantTranslationMode = "each-part" | "final-message"
 
 export interface TranslateState {
   translate_enabled: true
@@ -44,7 +41,6 @@ interface MessageLike {
   id: string
   sessionID: string
   role: string
-  summary?: boolean
 }
 
 export interface TextPartLike {
@@ -159,18 +155,5 @@ export interface PluginClientLike {
         extra?: Record<string, unknown>
       }
     }): Promise<unknown>
-  }
-  part?: {
-    update(
-      input: {
-        sessionID: string
-        messageID: string
-        partID: string
-        directory?: string
-        workspace?: string
-        part?: TextPartLike
-      },
-      options?: { throwOnError?: boolean },
-    ): Promise<TextPartLike | SDKResponseLike<TextPartLike>>
   }
 }
