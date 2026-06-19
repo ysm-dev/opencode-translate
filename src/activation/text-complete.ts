@@ -11,6 +11,8 @@ type TextCompleteHook = NonNullable<Hooks["experimental.text.complete"]>
 export function createTextCompleteHook(ctx: HookContext): TextCompleteHook {
   return async (input, output) => {
     try {
+      if (ctx.options.assistantTranslation === "final-message") return
+
       const resolved = await resolveSessionState(ctx.client, ctx.directory, input.sessionID)
       const activeState = resolved.state
       if (!activeState) return

@@ -1,5 +1,17 @@
 import { AUTH_ENV_FALLBACK, DEFAULT_TRIGGER, PLUGIN_NAME } from "./plugin"
-import type { ProviderInfo, ResolvedTranslateOptions } from "./types"
+import type { AssistantTranslationMode, ProviderInfo, ResolvedTranslateOptions } from "./types"
+
+const ASSISTANT_TRANSLATION_MODES = new Set<AssistantTranslationMode>(["each-part", "final-message"])
+
+function resolveAssistantTranslationMode(value: unknown): AssistantTranslationMode {
+  if (value === undefined) return "final-message"
+  if (typeof value === "string" && ASSISTANT_TRANSLATION_MODES.has(value as AssistantTranslationMode)) {
+    return value as AssistantTranslationMode
+  }
+  throw new Error(
+    `[${PLUGIN_NAME}:INVALID_OPTIONS] options.assistantTranslation must be "each-part" or "final-message".`,
+  )
+}
 
 export function resolveOptions(options: Record<string, unknown>): ResolvedTranslateOptions {
   const model = typeof options.model === "string" ? options.model.trim() : ""
@@ -36,6 +48,7 @@ export function resolveOptions(options: Record<string, unknown>): ResolvedTransl
     trigger: trigger.length > 0 ? trigger : [...DEFAULT_TRIGGER],
     lang,
     verbose: options.verbose === true,
+    assistantTranslation: resolveAssistantTranslationMode(options.assistantTranslation),
   }
 }
 

@@ -1,15 +1,16 @@
 import { beforeEach, expect, test } from "bun:test"
 import { __resetAuthCachesForTest, createCredentialResolver } from "../../src/auth"
-import { resolveOptions } from "../../src/constants"
+import { type ResolvedTranslateOptions, resolveOptions } from "../../src/constants"
 import { __resetTranslatorCachesForTest, createTranslator } from "../../src/translator"
 import { fakeClient } from "./helpers"
 
-function testOptions(overrides: Record<string, unknown> = {}) {
+function testOptions(overrides: Partial<ResolvedTranslateOptions> = {}): ResolvedTranslateOptions {
   return {
     model: "anthropic/claude-haiku-4-5",
     trigger: ["$en"],
     lang: "Korean",
     verbose: false,
+    assistantTranslation: "each-part",
     ...overrides,
   }
 }

@@ -36,6 +36,7 @@ export interface HookDependencies {
 export interface HookContext {
   client: PluginClientLike
   directory?: string
+  serverUrl?: URL
   options: ResolvedTranslateOptions
   translator: TranslatorLike
 }

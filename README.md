@@ -36,7 +36,8 @@ Add to `~/.config/opencode/opencode.jsonc`:
     ["opencode-translate", {
       "model": "openai/gpt-5.4-mini", // model to use for translation
       "variant": "minimal",            // optional model variant / thinking effort
-      "lang": "Korean"                // language you speak
+      "lang": "Korean",               // language you speak
+      "assistantTranslation": "final-message" // or "each-part"
     }]
   ]
 }
@@ -60,4 +61,5 @@ All subsequent messages in the same session are translated automatically — no 
 | `variant` | string | optional | Translator model variant / thinking effort (for example, `"minimal"`, `"high"`, or `"max"`) |
 | `lang` | string | required | Language you speak (e.g. `"Korean"`, `"Japanese"`) |
 | `trigger` | string[] | `["$en"]` | Keywords that activate translation |
+| `assistantTranslation` | `"each-part" \| "final-message"` | `"final-message"` | Translate only the final assistant text part after the loop becomes idle, or opt into translating each text part as it completes |
 | `verbose` | boolean | `false` | Print translation logs |
