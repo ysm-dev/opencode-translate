@@ -44,6 +44,10 @@ describe("translation hook E2E flow", () => {
             calls.push(`${direction}:${text}`)
             return direction === "inbound" ? `EN:${text}` : `KO:${text}`
           },
+          translateTexts: async ({ texts, direction }) => {
+            calls.push(`${direction}:${texts.join("|")}`)
+            return texts.map((text) => (direction === "inbound" ? `EN:${text}` : `KO:${text}`))
+          },
         },
       },
     )
@@ -110,10 +114,7 @@ describe("translation hook E2E flow", () => {
     expect(calls).toEqual([
       "inbound:안녕",
       "outbound:English follow-up",
-      "outbound:Proceed?",
-      "outbound:Confirm",
-      "outbound:Yes",
-      "outbound:Continue",
+      "outbound:Proceed?|Confirm|Yes|Continue",
       "inbound:직접 답변",
     ])
   })

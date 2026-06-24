@@ -15,3 +15,10 @@ export interface TranslateTextInput {
   targetLanguage: string
   direction: "inbound" | "outbound"
 }
+
+export interface TranslateTextsInput {
+  texts: readonly string[]
+  sourceLanguage: string
+  targetLanguage: string
+  direction: "inbound" | "outbound"
+}

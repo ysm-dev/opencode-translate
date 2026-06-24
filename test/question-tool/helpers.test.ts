@@ -27,15 +27,15 @@ describe("question-tool helpers", () => {
 
   test("translateQuestionArgs translates every display-facing field", async () => {
     const args = cloneSampleArgs()
-    const seen: string[] = []
-    await translateQuestionArgs(args, async (text) => {
-      seen.push(text)
-      return `[ko]${text}`
+    const seenBatches: string[][] = []
+    await translateQuestionArgs(args, async (texts) => {
+      seenBatches.push([...texts])
+      return texts.map((text) => `[ko]${text}`)
     })
 
-    expect(new Set(seen)).toEqual(
-      new Set(["Are you sure?", "Confirm", "Yes, delete", "This cannot be undone.", "No, cancel", "Keep the file."]),
-    )
+    expect(seenBatches).toEqual([
+      ["Are you sure?", "Confirm", "Yes, delete", "This cannot be undone.", "No, cancel", "Keep the file."],
+    ])
     expect(args.questions[0].question).toBe("[ko]Are you sure?")
     expect(args.questions[0].header).toBe("[ko]Confirm")
     expect(args.questions[0].options[0].label).toBe("[ko]Yes, delete")
@@ -44,14 +44,17 @@ describe("question-tool helpers", () => {
 
   test("translateQuestionArgs leaves args unchanged when one translation fails", async () => {
     const args = cloneSampleArgs()
+    let calls = 0
 
     await expect(
-      translateQuestionArgs(args, async (text) => {
-        if (text === "Confirm") throw new Error("translator down")
-        return `[ko]${text}`
+      translateQuestionArgs(args, async (texts) => {
+        calls += 1
+        expect(texts).toContain("Confirm")
+        throw new Error("translator down")
       }),
     ).rejects.toThrow("translator down")
 
+    expect(calls).toBe(1)
     expect(args).toEqual(cloneSampleArgs())
   })
 
@@ -64,9 +67,9 @@ describe("question-tool helpers", () => {
     const translatedCustomAnswers: string[] = []
 
     const out = await buildRestoredOutput(original, translated, [["예, 삭제"]], {
-      translateCustomAnswer: async (text) => {
-        translatedCustomAnswers.push(text)
-        return `EN:${text}`
+      translateCustomAnswers: async (texts) => {
+        translatedCustomAnswers.push(...texts)
+        return texts.map((text) => `EN:${text}`)
       },
     })
     expect(out).toBe(
@@ -86,21 +89,21 @@ describe("question-tool helpers", () => {
       '"Are you sure?"="직접 입력한 답변"',
     )
 
-    const seen: string[] = []
+    const seenBatches: string[][] = []
     const custom = await buildRestoredOutput(original, translated, [["직접 입력한 답변"]], {
-      translateCustomAnswer: async (text) => {
-        seen.push(text)
-        return `<text>\nEN:${text}\n</text>`
+      translateCustomAnswers: async (texts) => {
+        seenBatches.push([...texts])
+        return texts.map((text) => `<text>\nEN:${text}\n</text>`)
       },
     })
-    expect(seen).toEqual(["직접 입력한 답변"])
+    expect(seenBatches).toEqual([["직접 입력한 답변"]])
     expect(custom).toContain('"Are you sure?"="EN:직접 입력한 답변"')
 
     let calls = 0
     const unanswered = await buildRestoredOutput(original, translated, [[]], {
-      translateCustomAnswer: async (text) => {
+      translateCustomAnswers: async (texts) => {
         calls += 1
-        return `EN:${text}`
+        return texts.map((text) => `EN:${text}`)
       },
     })
     expect(unanswered).toContain('"Are you sure?"="Unanswered"')

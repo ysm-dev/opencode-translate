@@ -7,23 +7,40 @@ beforeEach(() => {
 })
 
 test("tool.execute.before translates question args when state is active", async () => {
+  const batches: string[][] = []
   const hooks = createHooks(
     { client: fakeClient(), directory: "/workspace" } as never,
     { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
-    { translator: { translateText: async ({ text }) => `[ko]${text}` } },
+    {
+      translator: {
+        translateText: async ({ text }) => `[ko]${text}`,
+        translateTexts: async ({ texts }) => {
+          batches.push([...texts])
+          return texts.map((text) => `[ko]${text}`)
+        },
+      },
+    },
   )
 
   const args = cloneSampleArgs()
   await hooks["tool.execute.before"]!({ tool: "question", sessionID: "ses_1", callID: "call_1" }, { args } as never)
   expect(args.questions[0].question).toBe("[ko]Are you sure?")
   expect(args.questions[0].options[0].label).toBe("[ko]Yes, delete")
+  expect(batches).toEqual([
+    ["Are you sure?", "Confirm", "Yes, delete", "This cannot be undone.", "No, cancel", "Keep the file."],
+  ])
 })
 
 test("tool.execute.before removes echoed text envelope from translated question args", async () => {
   const hooks = createHooks(
     { client: fakeClient(), directory: "/workspace" } as never,
     { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
-    { translator: { translateText: async ({ text }) => `<text>\n[ko]${text}\n</text>` } },
+    {
+      translator: {
+        translateText: async ({ text }) => `<text>\n[ko]${text}\n</text>`,
+        translateTexts: async ({ texts }) => texts.map((text) => `<text>\n[ko]${text}\n</text>`),
+      },
+    },
   )
 
   const args = cloneSampleArgs()
@@ -82,6 +99,10 @@ test("tool.execute.after restores the English output string", async () => {
           calls.push(`${direction}:${text}`)
           return `[ko]${text}`
         },
+        translateTexts: async ({ texts, direction }) => {
+          calls.push(`${direction}:${texts.join("|")}`)
+          return texts.map((text) => `[ko]${text}`)
+        },
       },
     },
   )
@@ -104,6 +125,7 @@ test("tool.execute.after restores the English output string", async () => {
   expect(afterOutput.metadata.answers).toEqual([["Yes, delete"]])
   expect(args.questions[0].question).toBe("Are you sure?")
   expect(args.questions[0].options[0].label).toBe("Yes, delete")
+  expect(calls).toEqual(["outbound:Are you sure?|Confirm|Yes, delete|This cannot be undone.|No, cancel|Keep the file."])
   expect(calls).not.toContain("inbound:[ko]Yes, delete")
 })
 
@@ -117,6 +139,10 @@ test("tool.execute.after translates free-text custom answers", async () => {
         translateText: async ({ text, direction }) => {
           calls.push(`${direction}:${text}`)
           return direction === "outbound" ? `[ko]${text}` : `EN:${text}`
+        },
+        translateTexts: async ({ texts, direction }) => {
+          calls.push(`${direction}:${texts.join("|")}`)
+          return texts.map((text) => (direction === "outbound" ? `[ko]${text}` : `EN:${text}`))
         },
       },
     },
@@ -184,6 +210,9 @@ test("tool.execute.after swallows before-hook translation errors and leaves args
     {
       translator: {
         translateText: async () => {
+          throw new Error("translator down")
+        },
+        translateTexts: async () => {
           throw new Error("translator down")
         },
       },
@@ -256,6 +285,10 @@ test("tool.execute.after logs custom answer translation failures with source-lan
       translator: {
         translateText: async ({ text, direction }) => {
           if (direction === "outbound") return `[ko]${text}`
+          throw new Error("custom answer translator down")
+        },
+        translateTexts: async ({ texts, direction }) => {
+          if (direction === "outbound") return texts.map((text) => `[ko]${text}`)
           throw new Error("custom answer translator down")
         },
       },

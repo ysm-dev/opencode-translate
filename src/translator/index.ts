@@ -9,7 +9,14 @@ import {
   parseTranslatorModel,
   type ResolvedTranslateOptions,
 } from "../constants"
-import { buildSystemPrompt, buildUserPrompt, unwrapEchoedTextEnvelope } from "../prompts"
+import {
+  buildBatchSystemPrompt,
+  buildBatchUserPrompt,
+  buildSystemPrompt,
+  buildUserPrompt,
+  parseBatchSegments,
+  unwrapEchoedTextEnvelope,
+} from "../prompts"
 import { __resetSyntheticPartIDForTest } from "./part-id"
 import {
   __resetProviderFactoryCacheForTest,
@@ -21,7 +28,7 @@ import {
   supportsTemperature,
 } from "./provider"
 import { withRetry } from "./retry"
-import type { TranslateTextInput, TranslatorDependencies } from "./types"
+import type { TranslateTextInput, TranslateTextsInput, TranslatorDependencies } from "./types"
 
 const DEFAULT_TRANSLATE_TIMEOUT_MS = 180_000
 
@@ -66,11 +73,7 @@ export function createTranslator(
   const credentialResolver = deps.credentialResolver ?? createCredentialResolver(client)
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TRANSLATE_TIMEOUT_MS
 
-  async function translateText(input: TranslateTextInput): Promise<string> {
-    if (!input.text) return input.text
-    if (input.sourceLanguage === input.targetLanguage) return input.text
-
-    const startedAt = now()
+  async function generateFromPrompts(system: string, prompt: string): Promise<string> {
     const { providerID, modelID } = parseTranslatorModel(options.model)
     const credentials = await credentialResolver.resolve(options.model)
     const modelInfo = resolveModelInfo(credentials.provider, modelID)
@@ -80,15 +83,15 @@ export function createTranslator(
     const providerOptions = { ...(credentials.provider?.options ?? {}), ...(modelInfo.options ?? {}) }
     const model = instantiateModel(provider, modelID, providerID, modelInfo, providerOptions) as LanguageModel
 
-    const rawTranslated = await withRetry(async () => {
+    return withRetry(async () => {
       try {
         const result = await withTimeout(
           generateTextImpl({
             model,
-            system: buildSystemPrompt(input),
+            system,
             ...(supportsTemperature(providerID, modelID, modelInfo) ? { temperature: 0 } : {}),
             ...(variantProviderOptions ? { providerOptions: variantProviderOptions } : {}),
-            prompt: buildUserPrompt(input),
+            prompt,
           }),
           timeoutMs,
           "Translator generateText",
@@ -102,6 +105,14 @@ export function createTranslator(
         throw error
       }
     }, sleepImpl)
+  }
+
+  async function translateText(input: TranslateTextInput): Promise<string> {
+    if (!input.text) return input.text
+    if (input.sourceLanguage === input.targetLanguage) return input.text
+
+    const startedAt = now()
+    const rawTranslated = await generateFromPrompts(buildSystemPrompt(input), buildUserPrompt(input))
     const translated = unwrapEchoedTextEnvelope(rawTranslated)
 
     if (options.verbose) {
@@ -125,7 +136,37 @@ export function createTranslator(
     return translated
   }
 
-  return { translateText }
+  async function translateTexts(input: TranslateTextsInput): Promise<string[]> {
+    if (input.texts.length === 0) return []
+    if (input.sourceLanguage === input.targetLanguage) return [...input.texts]
+
+    const startedAt = now()
+    const rawTranslated = await generateFromPrompts(buildBatchSystemPrompt(input), buildBatchUserPrompt(input))
+    const translated = parseBatchSegments(rawTranslated, input.texts.length).map(unwrapEchoedTextEnvelope)
+
+    if (options.verbose) {
+      await client.app.log({
+        body: {
+          service: PLUGIN_NAME,
+          level: "info",
+          message: "translated",
+          extra: {
+            direction: input.direction,
+            chars_in: input.texts.reduce((total, text) => total + text.length, 0),
+            chars_out: translated.reduce((total, text) => total + text.length, 0),
+            segments: input.texts.length,
+            ms: now() - startedAt,
+            cached: false,
+            model: options.model,
+          },
+        },
+      })
+    }
+
+    return translated
+  }
+
+  return { translateText, translateTexts }
 }
 
 export { __resetSyntheticPartIDForTest, createSyntheticPartID, hashText } from "./part-id"

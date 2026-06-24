@@ -3,9 +3,9 @@
 // Flow:
 //   1. Agent (main LLM, English-only) invokes the `question` tool with an
 //      `args.questions[]` payload in English.
-//   2. `tool.execute.before` hook translates each question's text, header,
-//      and every option's label + description into the configured `lang` so the
-//      question prompt renders in the user's language.
+//   2. `tool.execute.before` hook translates all question text, headers, and
+//      option labels + descriptions into the configured `lang` so the question
+//      prompt renders in the user's language.
 //   3. OpenCode publishes `question.asked`; the TUI shows the translated
 //      dialog and the user picks an option (or types a custom answer).
 //   4. `tool.execute.after` hook reverses the substitution using the
@@ -39,8 +39,19 @@ export interface QuestionToolOutput {
 }
 
 export interface RestoreQuestionOutputOptions {
-  translateCustomAnswer?: (text: string) => Promise<string>
+  translateCustomAnswers?: (texts: readonly string[]) => Promise<readonly string[]>
   onTranslationError?: (error: unknown) => Promise<void> | void
+}
+
+interface TranslatableField {
+  text: string
+  set(value: string): void
+}
+
+interface CustomAnswerSlot {
+  questionIndex: number
+  answerIndex: number
+  text: string
 }
 
 function cloneQuestion(q: TextRecord): TextRecord {
@@ -81,70 +92,57 @@ export function isQuestionArgs(value: unknown): value is QuestionArgs {
   return true
 }
 
-async function translatedDisplayText(text: string, translate: (text: string) => Promise<string>): Promise<string> {
-  if (text.length === 0) return text
-  return unwrapEchoedTextEnvelope(await translate(text))
-}
-
-// Translate every display-facing string in parallel, then commit the translated
-// clone only after every translation succeeds.
+// Translate every display-facing string in one batch, then commit the
+// translated clone only after the batch succeeds.
 export async function translateQuestionArgs(
   args: QuestionArgs,
-  translate: (text: string) => Promise<string>,
+  translate: (texts: readonly string[]) => Promise<readonly string[]>,
 ): Promise<void> {
   const translatedQuestions = snapshotQuestions(args)
-  const jobs: Promise<void>[] = []
+  const fields: TranslatableField[] = []
+
+  function addField(text: string, set: (value: string) => void) {
+    if (text.length === 0) return
+    fields.push({ text, set })
+  }
 
   for (const q of translatedQuestions) {
-    jobs.push(
-      (async () => {
-        q.question = await translatedDisplayText(q.question, translate)
-      })(),
-    )
-    jobs.push(
-      (async () => {
-        q.header = await translatedDisplayText(q.header, translate)
-      })(),
-    )
+    addField(q.question, (value) => {
+      q.question = value
+    })
+    addField(q.header, (value) => {
+      q.header = value
+    })
     for (const option of q.options) {
-      jobs.push(
-        (async () => {
-          option.label = await translatedDisplayText(option.label, translate)
-        })(),
-      )
-      jobs.push(
-        (async () => {
-          option.description = await translatedDisplayText(option.description, translate)
-        })(),
-      )
+      addField(option.label, (value) => {
+        option.label = value
+      })
+      addField(option.description, (value) => {
+        option.description = value
+      })
     }
   }
 
-  await Promise.all(jobs)
+  if (fields.length === 0) return
+
+  const translated = await translate(fields.map((field) => field.text))
+  if (translated.length !== fields.length) {
+    throw new Error(`Question translator returned ${translated.length} translations for ${fields.length} fields`)
+  }
+  for (const [index, field] of fields.entries()) {
+    field.set(unwrapEchoedTextEnvelope(translated[index]))
+  }
   args.questions.splice(0, args.questions.length, ...translatedQuestions)
 }
 
-// Given a user-selected label, find the matching translated option and return
-// its original English label. If no match exists, OpenCode only gives us the
-// raw answer string, so treat non-empty text as a custom answer and translate
-// it through the same source-language -> English path as normal user messages.
-async function restoreLabel(
+function restoreOptionLabel(
   selectedLabel: string,
   translatedOptions: readonly OptionRecord[],
   originalOptions: readonly OptionRecord[],
-  options: RestoreQuestionOutputOptions,
-): Promise<string> {
+): string | undefined {
   const idx = translatedOptions.findIndex((option) => option.label === selectedLabel)
-  if (idx >= 0) return originalOptions[idx]?.label ?? selectedLabel
-  if (!options.translateCustomAnswer || selectedLabel.trim().length === 0) return selectedLabel
-
-  try {
-    const translated = await options.translateCustomAnswer(selectedLabel)
-    return unwrapEchoedTextEnvelope(translated)
-  } catch (error) {
-    await options.onTranslationError?.(error)
-    return selectedLabel
-  }
+  if (idx < 0) return undefined
+  return originalOptions[idx]?.label ?? selectedLabel
 }
 
 async function restoreQuestionAnswers(
@@ -153,14 +151,40 @@ async function restoreQuestionAnswers(
   answers: readonly (readonly string[])[],
   options: RestoreQuestionOutputOptions = {},
 ): Promise<string[][]> {
-  return Promise.all(
-    original.map(async (q, i) => {
-      const selected = answers[i] ?? []
-      const translatedOptions = translated[i]?.options ?? []
-      const originalOptions = q.options
-      return Promise.all(selected.map((label) => restoreLabel(label, translatedOptions, originalOptions, options)))
-    }),
-  )
+  const translateCustomAnswers = options.translateCustomAnswers
+  const customSlots: CustomAnswerSlot[] = []
+  const restored = original.map((q, questionIndex) => {
+    const selected = answers[questionIndex] ?? []
+    const translatedOptions = translated[questionIndex]?.options ?? []
+    const originalOptions = q.options
+
+    return selected.map((label, answerIndex) => {
+      const restoredLabel = restoreOptionLabel(label, translatedOptions, originalOptions)
+      if (restoredLabel !== undefined) return restoredLabel
+      if (!translateCustomAnswers || label.trim().length === 0) return label
+
+      customSlots.push({ questionIndex, answerIndex, text: label })
+      return label
+    })
+  })
+
+  if (!translateCustomAnswers || customSlots.length === 0) return restored
+
+  try {
+    const translatedCustomAnswers = await translateCustomAnswers(customSlots.map((slot) => slot.text))
+    if (translatedCustomAnswers.length !== customSlots.length) {
+      throw new Error(
+        `Question custom-answer translator returned ${translatedCustomAnswers.length} translations for ${customSlots.length} answers`,
+      )
+    }
+    for (const [index, slot] of customSlots.entries()) {
+      restored[slot.questionIndex][slot.answerIndex] = unwrapEchoedTextEnvelope(translatedCustomAnswers[index])
+    }
+  } catch (error) {
+    await options.onTranslationError?.(error)
+  }
+
+  return restored
 }
 
 function formatRestoredOutput(original: readonly TextRecord[], answers: readonly (readonly string[])[]): string {

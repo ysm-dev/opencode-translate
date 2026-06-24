@@ -107,6 +107,92 @@ test("unwraps echoed text envelope from translator output", async () => {
   expect(translated).toBe("안녕하세요")
 })
 
+test("translateTexts batches multiple segments into one request", async () => {
+  let calls = 0
+  let request: Record<string, unknown> | undefined
+  const translator = createTranslator(fakeClient([]), testOptions(), {
+    credentialResolver: {
+      resolve: async () => ({ providerID: "anthropic", apiKey: "test-key", mode: "apiKey" as const }),
+      isMissingCredentialError: () => false,
+      authUnavailable: () => new Error("unused"),
+      envFallback: "ANTHROPIC_API_KEY",
+    },
+    generateTextImpl: async (input) => {
+      calls += 1
+      request = input as Record<string, unknown>
+      return {
+        text: '<segment index="1">\n안녕하세요\n</segment>\n<segment index="2">\n계속\n</segment>',
+      } as never
+    },
+    sleep: async () => undefined,
+  })
+
+  const translated = await translator.translateTexts({
+    texts: ["Hello", "Continue"],
+    sourceLanguage: "English",
+    targetLanguage: "Korean",
+    direction: "outbound",
+  })
+  expect(translated).toEqual(["안녕하세요", "계속"])
+  expect(calls).toBe(1)
+  expect(request?.system).toContain("multiple independent")
+  expect(request?.prompt).toContain('<segment index="1">\nHello\n</segment>')
+})
+
+test("translateTexts skips same-language batches", async () => {
+  let calls = 0
+  const translator = createTranslator(fakeClient([]), testOptions(), {
+    credentialResolver: {
+      resolve: async () => ({ providerID: "anthropic", apiKey: "test-key", mode: "apiKey" as const }),
+      isMissingCredentialError: () => false,
+      authUnavailable: () => new Error("unused"),
+      envFallback: "ANTHROPIC_API_KEY",
+    },
+    generateTextImpl: async () => {
+      calls += 1
+      return { text: "unused" } as never
+    },
+    sleep: async () => undefined,
+  })
+
+  await expect(
+    translator.translateTexts({
+      texts: ["hello", ""],
+      sourceLanguage: "English",
+      targetLanguage: "English",
+      direction: "outbound",
+    }),
+  ).resolves.toEqual(["hello", ""])
+  expect(calls).toBe(0)
+})
+
+test("translateTexts treats malformed batch output as one failed request", async () => {
+  let calls = 0
+  const translator = createTranslator(fakeClient([]), testOptions(), {
+    credentialResolver: {
+      resolve: async () => ({ providerID: "anthropic", apiKey: "test-key", mode: "apiKey" as const }),
+      isMissingCredentialError: () => false,
+      authUnavailable: () => new Error("unused"),
+      envFallback: "ANTHROPIC_API_KEY",
+    },
+    generateTextImpl: async () => {
+      calls += 1
+      return { text: '<segment index="1">\n안녕하세요\n</segment>' } as never
+    },
+    sleep: async () => undefined,
+  })
+
+  await expect(
+    translator.translateTexts({
+      texts: ["Hello", "Continue"],
+      sourceLanguage: "English",
+      targetLanguage: "Korean",
+      direction: "outbound",
+    }),
+  ).rejects.toThrow("segment index 2")
+  expect(calls).toBe(1)
+})
+
 test("OpenAI reasoning translators omit unsupported temperature", async () => {
   let request: Record<string, unknown> | undefined
   const translator = createTranslator(fakeClient([]), testOptions({ model: "openai/gpt-5.5" }), {

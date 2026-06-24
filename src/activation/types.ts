@@ -27,6 +27,12 @@ interface TranslatorLike {
     targetLanguage: string
     direction: "inbound" | "outbound"
   }): Promise<string>
+  translateTexts?(input: {
+    texts: readonly string[]
+    sourceLanguage: string
+    targetLanguage: string
+    direction: "inbound" | "outbound"
+  }): Promise<readonly string[]>
 }
 
 export interface HookDependencies {

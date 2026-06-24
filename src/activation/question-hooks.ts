@@ -44,13 +44,24 @@ export function createToolExecuteBeforeHook(ctx: HookContext): NonNullable<Hooks
       const original = snapshotQuestions(args)
       if (activeState.translate_user_lang !== LLM_LANGUAGE) {
         try {
-          await translateQuestionArgs(args, (text) =>
-            ctx.translator.translateText({
-              text,
-              sourceLanguage: LLM_LANGUAGE,
-              targetLanguage: activeState.translate_user_lang,
-              direction: "outbound",
-            }),
+          await translateQuestionArgs(args, (texts) =>
+            ctx.translator.translateTexts
+              ? ctx.translator.translateTexts({
+                  texts,
+                  sourceLanguage: LLM_LANGUAGE,
+                  targetLanguage: activeState.translate_user_lang,
+                  direction: "outbound",
+                })
+              : Promise.all(
+                  texts.map((text) =>
+                    ctx.translator.translateText({
+                      text,
+                      sourceLanguage: LLM_LANGUAGE,
+                      targetLanguage: activeState.translate_user_lang,
+                      direction: "outbound",
+                    }),
+                  ),
+                ),
           )
         } catch (error) {
           args.questions.splice(0, args.questions.length, ...snapshotQuestions({ questions: original }))
@@ -86,13 +97,24 @@ export function createToolExecuteAfterHook(ctx: HookContext): NonNullable<Hooks[
       }
 
       await restoreQuestionOutput(output as QuestionToolOutput, snapshot, {
-        translateCustomAnswer: (text: string) =>
-          ctx.translator.translateText({
-            text,
-            sourceLanguage: snapshot.userLanguage,
-            targetLanguage: LLM_LANGUAGE,
-            direction: "inbound",
-          }),
+        translateCustomAnswers: (texts: readonly string[]) =>
+          ctx.translator.translateTexts
+            ? ctx.translator.translateTexts({
+                texts,
+                sourceLanguage: snapshot.userLanguage,
+                targetLanguage: LLM_LANGUAGE,
+                direction: "inbound",
+              })
+            : Promise.all(
+                texts.map((text) =>
+                  ctx.translator.translateText({
+                    text,
+                    sourceLanguage: snapshot.userLanguage,
+                    targetLanguage: LLM_LANGUAGE,
+                    direction: "inbound",
+                  }),
+                ),
+              ),
         onTranslationError: async (error) => {
           await logError(ctx.client, buildInboundTranslationError(snapshot.userLanguage, normalizeReason(error)))
         },
