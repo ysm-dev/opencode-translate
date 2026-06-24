@@ -168,6 +168,41 @@ test("tool.execute.after translates free-text custom answers", async () => {
   expect(calls).toContain("inbound:직접 입력한 답변")
 })
 
+test("tool.execute.after falls back to translateText for custom answers", async () => {
+  const calls: string[] = []
+  const hooks = createHooks(
+    { client: fakeClient(), directory: "/workspace" } as never,
+    { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
+    {
+      translator: {
+        translateText: async ({ text, direction }) => {
+          calls.push(`${direction}:${text}`)
+          return direction === "outbound" ? `[ko]${text}` : `EN:${text}`
+        },
+      },
+    },
+  )
+
+  const args = cloneSampleArgs()
+  await hooks["tool.execute.before"]!({ tool: "question", sessionID: "ses_1", callID: "call_custom_fallback" }, {
+    args,
+  } as never)
+  const afterOutput = {
+    title: "Asked 1 question",
+    output: `User has answered your questions: "[ko]Are you sure?"="직접 입력한 답변". You can now continue with the user's answers in mind.`,
+    metadata: { answers: [["직접 입력한 답변"]] },
+  }
+
+  await hooks["tool.execute.after"]!(
+    { tool: "question", sessionID: "ses_1", callID: "call_custom_fallback", args },
+    afterOutput as never,
+  )
+
+  expect(afterOutput.output).toContain('"Are you sure?"="EN:직접 입력한 답변"')
+  expect(afterOutput.metadata.answers).toEqual([["EN:직접 입력한 답변"]])
+  expect(calls).toContain("inbound:직접 입력한 답변")
+})
+
 test("tool.execute.after does not translate custom answers when language is English", async () => {
   const calls: string[] = []
   const hooks = createHooks(

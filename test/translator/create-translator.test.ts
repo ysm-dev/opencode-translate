@@ -493,6 +493,61 @@ test("verbose translation logs timing and character metadata", async () => {
   ])
 })
 
+test("verbose batch translation logs aggregate segment metadata", async () => {
+  const logs: unknown[] = []
+  const client = {
+    ...fakeClient([]),
+    app: {
+      log: async (input: unknown) => {
+        logs.push(input)
+        return undefined
+      },
+    },
+  }
+  const translator = createTranslator(client, testOptions({ verbose: true }), {
+    credentialResolver: {
+      resolve: async () => ({ providerID: "anthropic", apiKey: "test-key", mode: "apiKey" as const }),
+      isMissingCredentialError: () => false,
+      authUnavailable: () => new Error("unused"),
+      envFallback: "ANTHROPIC_API_KEY",
+    },
+    generateTextImpl: async () =>
+      ({ text: '<segment index="1">\n안녕\n</segment>\n<segment index="2">\n계속\n</segment>' }) as never,
+    sleep: async () => undefined,
+    now: (() => {
+      const values = [100, 145]
+      return () => values.shift() ?? 145
+    })(),
+  })
+
+  await expect(
+    translator.translateTexts({
+      texts: ["Hello", "Continue"],
+      sourceLanguage: "English",
+      targetLanguage: "Korean",
+      direction: "outbound",
+    }),
+  ).resolves.toEqual(["안녕", "계속"])
+  expect(logs).toEqual([
+    {
+      body: {
+        service: "opencode-translate",
+        level: "info",
+        message: "translated",
+        extra: {
+          direction: "outbound",
+          chars_in: 13,
+          chars_out: 4,
+          segments: 2,
+          ms: 45,
+          cached: false,
+          model: "anthropic/claude-haiku-4-5",
+        },
+      },
+    },
+  ])
+})
+
 test("translator requests are bounded by the configured timeout", async () => {
   const translator = createTranslator(fakeClient([]), testOptions(), {
     credentialResolver: {
