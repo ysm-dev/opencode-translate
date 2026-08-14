@@ -1,3 +1,5 @@
+
+
 # opencode-translate
 
 > Use opencode in your native language. LLM always hears English.
@@ -50,7 +52,7 @@ Prefix any message with `$en` to activate translation for that session.
 $en 프로젝트 루트의 package.json을 읽고 요약해줘
 ```
 
-All subsequent messages in the same session are translated automatically — no need to repeat `$en`.
+The trigger keyword is automatically stripped, and the translated English text is appended to your original message (e.g., `→ EN: ...`). All subsequent messages in the same session are translated automatically — no need to repeat `$en`.
 
 ## Options
 
