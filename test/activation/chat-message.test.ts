@@ -103,6 +103,49 @@ describe("activation chat.message", () => {
     expect((output.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
   })
 
+  test("undo resend reuses the inline English translation without exposing the original text", async () => {
+    let calls = 0
+    const hooks = createHooks(
+      { client: fakeClient([]), directory: "/workspace" } as never,
+      { model: "anthropic/claude-haiku-4-5", lang: "Korean" },
+      {
+        translator: {
+          translateText: async ({ text }) => {
+            calls += 1
+            return `EN:${text}`
+          },
+        },
+      },
+    )
+
+    const firstOutput = { message: { id: "msg_first" }, parts: [textPart("p1", "$en 안녕")] }
+    await hooks["chat.message"]!({ sessionID: "ses_1" }, firstOutput as never)
+    const restoredText = (firstOutput.parts[0] as TextPartLike).text ?? ""
+    expect(restoredText).toContain("안녕\n\n→ EN: EN:안녕")
+    expect(restoredText).toContain("✓ Translation mode enabled")
+
+    const resendOutput = { message: { id: "msg_resend" }, parts: [textPart("p2", restoredText)] }
+    await hooks["chat.message"]!({ sessionID: "ses_1" }, resendOutput as never)
+
+    expect(calls).toBe(1)
+    expect(resendOutput.parts).toHaveLength(2)
+    expect((resendOutput.parts[0] as TextPartLike).text).toBe(restoredText)
+    expect((resendOutput.parts[0] as TextPartLike).metadata?.translate_en).toBe("EN:안녕")
+    expect((resendOutput.parts[0] as TextPartLike).metadata?.translate_source_hash).toBe(hashText("안녕"))
+    expect((resendOutput.parts[1] as TextPartLike).text).toBe("EN:안녕")
+    expect((resendOutput.parts[1] as TextPartLike).metadata?.translate_role).toBe("llm_only_translation")
+
+    const transformOutput = {
+      messages: [storedMessage((resendOutput.parts as TextPartLike[]).map((part) => ({ ...part })))],
+    }
+    await hooks["experimental.chat.messages.transform"]!({} as never, transformOutput as never)
+
+    const modelVisibleText = transformOutput.messages[0].parts
+      .filter((part) => part.type === "text" && part.ignored !== true)
+      .map((part) => part.text)
+    expect(modelVisibleText).toEqual(["EN:안녕"])
+  })
+
   test("untranslated root session without trigger remains inactive", async () => {
     let calls = 0
     const hooks = createHooks(

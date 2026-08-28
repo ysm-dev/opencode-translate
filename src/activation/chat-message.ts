@@ -33,6 +33,24 @@ interface PartProcessingResult {
   firstUserTextPart?: TextPartLike & { text: string }
 }
 
+interface ExistingTranslation {
+  source: string
+  english: string
+}
+
+const INLINE_ENGLISH_MARKER = "\n\n→ EN: "
+
+function extractExistingTranslation(ctx: HookContext, text: string): ExistingTranslation | undefined {
+  const bannerSuffix = `\n\n${createActivationBannerText(ctx.options)}`
+  const content = text.endsWith(bannerSuffix) ? text.slice(0, -bannerSuffix.length) : text
+  const markerIndex = content.lastIndexOf(INLINE_ENGLISH_MARKER)
+  if (markerIndex < 0) return
+
+  const english = content.slice(markerIndex + INLINE_ENGLISH_MARKER.length)
+  if (english.trim().length === 0) return
+  return { source: content.slice(0, markerIndex), english }
+}
+
 async function activateFromTrigger(
   ctx: HookContext,
   input: ChatMessageInput,
@@ -68,15 +86,22 @@ async function translateUserPart(
   errors: { part: TextPartLike; error: unknown }[],
 ) {
   try {
-    const english = await ctx.translator.translateText({
-      text: part.text,
-      sourceLanguage: state.translate_user_lang,
-      targetLanguage: LLM_LANGUAGE,
-      direction: "inbound",
-    })
-    const sourceHash = hashText(part.text)
-    part.metadata = { ...(part.metadata ?? {}), ...mergeTranslatedMetadata(state, part, english) }
-    part.text = `${part.text}\n\n→ EN: ${english}`
+    const existing = extractExistingTranslation(ctx, part.text)
+    const source = existing?.source ?? part.text
+    const english =
+      existing?.english ??
+      (await ctx.translator.translateText({
+        text: source,
+        sourceLanguage: state.translate_user_lang,
+        targetLanguage: LLM_LANGUAGE,
+        direction: "inbound",
+      }))
+    const sourceHash = hashText(source)
+    part.metadata = {
+      ...(part.metadata ?? {}),
+      ...mergeTranslatedMetadata(state, { ...part, text: source }, english),
+    }
+    if (!existing) part.text = `${source}${INLINE_ENGLISH_MARKER}${english}`
     nextParts.push(
       createLlmOnlyTextPart(part.sessionID, part.messageID, english, {
         translate_role: "llm_only_translation",
