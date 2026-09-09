@@ -43,6 +43,7 @@
     "test": "bun test",
     "test:coverage": "bun test --coverage",
     "test:package": "node scripts/package-smoke.mjs",
+    "prepare": "bun run build",
     "prepack": "bun run build"
   },
   "peerDependencies": {
