@@ -79,6 +79,10 @@ jobs:
         if: steps.check.outputs.already_published == 'false'
         run: bun run test:coverage
 
+      - name: Test published package
+        if: steps.check.outputs.already_published == 'false'
+        run: bun run test:package
+
       # Uses npm OIDC trusted publishing (no NPM_TOKEN).
       # Requires npm >= 11.5.1. Node 24 ships with npm 11.x; if the default
       # npm is too old we fall through to npx with a pinned version.

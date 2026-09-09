@@ -10,6 +10,7 @@
     "@ai-sdk/openai-compatible"
   ],
   "ignoreIssues": {
+    "index.d.ts": ["duplicates"],
     "src/index.ts": ["duplicates"]
   }
 }

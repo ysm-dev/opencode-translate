@@ -24,6 +24,11 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
       - name: Install
         run: bun install --frozen-lockfile
 
@@ -38,3 +43,6 @@ jobs:
 
       - name: Test with coverage
         run: bun run test:coverage
+
+      - name: Test published package
+        run: bun run test:package

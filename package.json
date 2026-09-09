@@ -1,9 +1,10 @@
 {
   "name": "opencode-translate",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "OpenCode plugin that lets the user chat in a configured language while the main chat loop only sees English.",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "index.d.ts",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,7 +22,8 @@
     "i18n"
   ],
   "files": [
-    "src",
+    "dist",
+    "index.d.ts",
     "LICENSE",
     "README.md"
   ],
@@ -29,6 +31,7 @@
     "access": "public"
   },
   "scripts": {
+    "build": "bun build src/index.ts --outfile dist/index.js --target node --format esm --packages external",
     "typecheck": "tsgo --noEmit",
     "format": "biome format --write .",
     "format:check": "biome format .",
@@ -38,7 +41,9 @@
     "check": "biome check --write .",
     "check:ci": "biome check .",
     "test": "bun test",
-    "test:coverage": "bun test --coverage"
+    "test:coverage": "bun test --coverage",
+    "test:package": "node scripts/package-smoke.mjs",
+    "prepack": "bun run build"
   },
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.14.0"
