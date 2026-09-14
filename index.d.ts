@@ -1,5 +1,5 @@
-import type { Plugin } from "@opencode-ai/plugin"
+import type { Plugin } from "@opencode/plugin"
 
-export declare const OpencodeTranslate: Plugin
+export declare const OpencodeTranslate: Plugin.Plugin
 
 export default OpencodeTranslate

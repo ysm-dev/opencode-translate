@@ -57,6 +57,21 @@ describe("question-tool helpers", () => {
     expect(calls).toBe(1)
     expect(args).toEqual(cloneSampleArgs())
   })
+  test("invalid batch sizes do not partially overwrite questions or custom answers", async () => {
+    const args = cloneSampleArgs()
+    await expect(translateQuestionArgs(args, async () => [])).rejects.toThrow("translations for")
+    expect(args).toEqual(cloneSampleArgs())
+    const original = snapshotQuestions(args)
+    const errors: unknown[] = []
+    const output = await buildRestoredOutput(original, original, [["Custom"]], {
+      translateCustomAnswers: async () => [],
+      onTranslationError: async (error) => {
+        errors.push(error)
+      },
+    })
+    expect(output).toContain("Custom")
+    expect(errors).toHaveLength(1)
+  })
 
   test("buildRestoredOutput reconstructs the English output from a Korean answer", async () => {
     const original = snapshotQuestions(sampleArgs)

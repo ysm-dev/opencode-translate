@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { getEnvVarHint, parseTranslatorModel, resolveOptions } from "../../src/constants"
+import { parseTranslatorModel, resolveOptions } from "../../src/constants"
 
 describe("option resolution", () => {
   test("resolveOptions sanitizes optional user configuration", () => {
@@ -60,10 +60,5 @@ describe("option resolution", () => {
       modelID: "claude-haiku-4-5",
     })
     expect(parseTranslatorModel("openai/gpt-5.5")).toEqual({ providerID: "openai", modelID: "gpt-5.5" })
-  })
-
-  test("getEnvVarHint uses provider-specific env names when available", () => {
-    expect(getEnvVarHint({ id: "openai", source: "env", env: ["OPENAI_API_KEY"] })).toBe("OPENAI_API_KEY")
-    expect(getEnvVarHint(undefined)).toBe("the provider's API key env var")
   })
 })

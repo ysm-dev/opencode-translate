@@ -46,3 +46,6 @@ jobs:
 
       - name: Test published package
         run: bun run test:package
+
+      - name: Test isolated OpenCode v2 host
+        run: npm exec --yes --package=@opencode/cli@2.0.3 -- bun run test:host

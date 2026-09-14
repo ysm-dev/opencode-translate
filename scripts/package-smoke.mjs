@@ -41,9 +41,30 @@ try {
         import assert from "node:assert/strict"
         process.env.OPENCODE_TRANSLATE_DISABLE = "1"
         const plugin = await import("opencode-translate")
-        assert.equal(typeof plugin.default, "function")
+        assert.equal(plugin.default.id, "opencode-translate")
+        assert.equal(typeof plugin.default.setup, "function")
         assert.equal(plugin.default, plugin.OpencodeTranslate)
-        assert.deepEqual(await plugin.default({ client: {}, directory: process.cwd() }, {}), {})
+        assert.equal(await plugin.default.setup({}), undefined)
+        delete process.env.OPENCODE_TRANSLATE_DISABLE
+        const hooks = []
+        const hook = (domain) => async (name) => {
+          hooks.push(domain + "." + name)
+          return { dispose: async () => {} }
+        }
+        const cleanup = await plugin.default.setup({
+          app: { version: "2.0.3" },
+          options: { model: "openai/gpt-5.4-mini", lang: "Korean" },
+          session: { hook: hook("session") },
+          tool: { hook: hook("tool") },
+          storage: {},
+          generate: {},
+        })
+        assert(hooks.includes("session.prompt"))
+        assert(hooks.includes("session.http.response"))
+        assert(hooks.includes("session.compaction"))
+        assert(hooks.includes("tool.execute.after"))
+        assert.equal(typeof cleanup, "function")
+        await cleanup()
       `,
     ],
     consumer,
