@@ -125,6 +125,8 @@ jobs:
         env:
           OPENCODE_TRANSLATE_PACKAGE: ${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}
           OPENCODE_TRANSLATE_REQUIRE_SESSION: "1"
+          # Refresh metadata cached by the pre-publish version lookup.
+          npm_config_prefer_online: "true"
         run: npm exec --yes --package=@opencode/cli@2.0.3 -- node scripts/host-smoke.mjs
 
       # Tag/Release run whenever the git tag is missing, even if publish was
