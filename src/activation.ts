@@ -24,11 +24,7 @@ export async function setup(ctx: Plugin.Context) {
     const source = lang ? event.prompt.text : stripTrigger(event.prompt.text, options.trigger)
     if (source === undefined) return
     const userLanguage = lang ?? options.lang
-    try {
-      const english = await translator.text(source, userLanguage, LLM_LANGUAGE)
-      const display = source === english ? source : `${source}\n\n→ EN: ${english}`
-      await state.remember(event.sessionID, display, english)
-      await ctx.storage.set(`sessions/${event.sessionID}`, userLanguage)
+    function apply(display: string, english: string, enabled: boolean) {
       event.prompt.text = display
       // Mentions refer to offsets in the submitted text, which rewriting invalidates.
       for (const attachment of [
@@ -38,9 +34,29 @@ export async function setup(ctx: Plugin.Context) {
       ]) {
         delete attachment.mention
       }
-      event.metadata = { ...event.metadata, [METADATA_KEY]: { lang: userLanguage, english, display } }
+      event.metadata = { ...event.metadata, [METADATA_KEY]: { lang: userLanguage, english, display, enabled } }
+    }
+    try {
+      const english = await translator.text(source, userLanguage, LLM_LANGUAGE)
+      const content = source === english ? source : `${source}\n\n→ EN: ${english}`
+      const display = lang
+        ? content
+        : `${content}\n\n🌐 Translation enabled: ${userLanguage} ↔ ${LLM_LANGUAGE} (${options.model})`
+      await state.remember(event.sessionID, display, english)
+      await ctx.storage.set(`sessions/${event.sessionID}`, userLanguage)
+      apply(display, english, true)
     } catch (error) {
       console.error(`[${PLUGIN_NAME}] inbound translation failed; sending original text`, error)
+      // The public Promise bridge may reject with a serialized tagged error,
+      // rather than an Error instance from this module's JavaScript realm.
+      const reason =
+        error && typeof error === "object" && "message" in error && typeof error.message === "string"
+          ? error.message
+          : String(error)
+      const display = `${source}\n\n⚠️ Translation failed: ${reason}. Original text was sent to the model.`
+      // Preserve v1's visible fallback and strip the control keyword. Failed
+      // activation must not become an enabled session when metadata is recovered.
+      apply(display, source, Boolean(lang))
     }
   })
 

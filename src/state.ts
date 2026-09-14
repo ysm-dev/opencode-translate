@@ -6,11 +6,13 @@ function hash(text: string) {
   return createHash("sha256").update(text).digest("hex")
 }
 
-export function readMetadata(value: unknown): { lang: string; english: string; display: string } | undefined {
+export function readMetadata(
+  value: unknown,
+): { lang: string; english: string; display: string; enabled: boolean } | undefined {
   if (!value || typeof value !== "object") return
   const item = value as Record<string, unknown>
   if (typeof item.lang === "string" && typeof item.english === "string" && typeof item.display === "string") {
-    return { lang: item.lang, english: item.english, display: item.display }
+    return { lang: item.lang, english: item.english, display: item.display, enabled: item.enabled !== false }
   }
 }
 
@@ -40,7 +42,7 @@ export function createState(ctx: Plugin.Context) {
       const messages = await ctx.session.context({ sessionID })
       for (const message of messages) {
         const data = readMetadata(message.metadata?.[METADATA_KEY])
-        if (message.type === "user" && data) {
+        if (message.type === "user" && data?.enabled) {
           await ctx.storage.set(`sessions/${sessionID}`, data.lang)
           return data.lang
         }

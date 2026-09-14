@@ -64,14 +64,28 @@ $en 프로젝트 루트의 package.json을 읽고 요약해줘
 All subsequent messages in the same session are translated automatically — no need to repeat `$en`.
 
 - Your original message and its English translation remain visible in the transcript.
+- The first successful `$en` prompt includes a `Translation enabled:` confirmation with the language and translator model.
 - English assistant text streams normally; a translated Markdown section is appended when the text segment completes.
 - Both the **terminal and web UI** display the same persisted bilingual assistant text. No UI-specific plugin is needed.
 - Question forms are translated, with selected labels and custom answers converted back to English for the model.
 - Translation activates only in root sessions. Its state survives plugin/server restarts.
 
 Before model requests, the plugin removes its recorded display translations from context. It does not remove arbitrary
-Markdown based on its appearance. On inbound translation failure, the original prompt is sent unchanged; on outbound
-failure, the English response is retained with a translation-unavailable notice.
+Markdown based on its appearance. On inbound translation failure, the transcript shows `Translation failed:` and the
+error reason. The main model receives the original text without `$en` or the diagnostic; failed first-time activation
+remains inactive, so retry with `$en` after fixing the error. On outbound failure, the English response is retained with
+a translation-unavailable notice.
+
+### If `$en` has no effect
+
+`$en` is a plugin control keyword, not an instruction for the main model. If the model comments on `$en`, inbound
+translation did not complete. In version 2.0.0, an inbound failure was only logged on the server and left `$en` in the
+prompt, making it indistinguishable from an unloaded plugin in the transcript.
+
+Check the active server's plugin list and configuration, including the selected project location. It must load the v2
+package, not an old pinned `opencode-translate@1.x`. Also check the configured **translation** model and variant; changing
+the main-chat model does not change the translator. An API-key login or OAuth connection must exist on that server.
+The server log message `[opencode-translate] inbound translation failed` contains the underlying generation error.
 
 ## Authentication
 
@@ -114,6 +128,9 @@ bun run test:package
 
 # Requires Node 24 and an OpenCode v2 binary; uses an isolated server and fake provider.
 OPENCODE_BINARY=/path/to/opencode bun run test:host
+
+# Exercise a registry-installed package through OpenCode's actual package loader.
+OPENCODE_BINARY=/path/to/opencode OPENCODE_TRANSLATE_PACKAGE=opencode-translate@latest bun run test:host
 ```
 
 Tests include OpenCode's actual native protocol parsers. The real-host smoke test loads the built plugin, creates and

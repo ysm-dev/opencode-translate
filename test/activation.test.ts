@@ -34,7 +34,9 @@ describe("v2 lifecycle and admission", () => {
     await setup(h.ctx)
     const input = prompt()
     await h.emit("session.prompt", input)
-    expect(input.prompt.text).toBe("안녕하세요\n\n→ EN: Hello")
+    expect(input.prompt.text).toBe(
+      "안녕하세요\n\n→ EN: Hello\n\n🌐 Translation enabled: Korean ↔ English (openai/gpt-5.4-mini)",
+    )
     expect(h.requests[0].model).toEqual({ providerID: "openai", id: "gpt-5.4-mini", variant: "minimal" })
     expect(h.values.get("sessions/ses_1")).toBe("Korean")
     for (const name of ["context", "title", "compaction", "generate"]) {
@@ -83,12 +85,12 @@ describe("v2 lifecycle and admission", () => {
     ]
     expect(await createState(h.ctx).language("ses_1")).toBe("Japanese")
   })
-  test("translation failure leaves prompt and activation untouched", async () => {
+  test("translation failure is visible, strips the trigger, and does not activate the session", async () => {
     const log = spyOn(console, "error").mockImplementation(() => {})
     const h = host()
-    h.generate(async () => {
-      throw new Error("Generation credentials are unavailable")
-    })
+    h.generate(async () =>
+      Promise.reject({ _tag: "Generate.UnavailableError", message: "Generation credentials are unavailable" }),
+    )
     await setup(h.ctx)
     const input = prompt()
     try {
@@ -97,8 +99,22 @@ describe("v2 lifecycle and admission", () => {
     } finally {
       log.mockRestore()
     }
-    expect(input.prompt.text).toBe("$en 안녕하세요")
+    expect(input.prompt.text).toBe(
+      "안녕하세요\n\n⚠️ Translation failed: Generation credentials are unavailable. Original text was sent to the model.",
+    )
     expect(h.values.get("sessions/ses_1")).toBeUndefined()
+    const context = requestContext([
+      { role: "user", content: [{ type: "text", text: input.prompt.text }], metadata: input.metadata },
+    ])
+    await h.emit("session.context", context)
+    expect(context.messages).toMatchObject([{ content: [{ text: "안녕하세요" }] }])
+    h.history.ses_1 = [{ type: "user", metadata: input.metadata }]
+    expect(await createState(h.ctx).language("ses_1")).toBeUndefined()
+    h.generate(async () => "Hello")
+    const retry = prompt()
+    await h.emit("session.prompt", retry)
+    expect(retry.prompt.text).toContain("Translation enabled:")
+    expect(h.values.get("sessions/ses_1")).toBe("Korean")
   })
   test("rewriting removes stale file, agent, and skill mention offsets", async () => {
     const h = host()

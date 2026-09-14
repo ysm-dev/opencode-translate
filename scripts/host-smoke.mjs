@@ -15,6 +15,7 @@ const root = await mkdtemp(path.join(process.env.OPENCODE_TRANSLATE_TEST_TMP ?? 
 const entrypoint = fileURLToPath(new URL("../dist/index.js", import.meta.url))
 const requests = []
 let key = "test-sqlite-key"
+let translatorFailure = false
 let child
 let logs = ""
 const provider = createServer(async (req, res) => {
@@ -24,6 +25,12 @@ const provider = createServer(async (req, res) => {
   requests.push({ input, authorization: req.headers.authorization })
   if (req.headers.authorization !== `Bearer ${key}`) {
     res.writeHead(401).end("Unexpected credential")
+    return
+  }
+  if (input.model === "translator" && translatorFailure) {
+    res
+      .writeHead(401, { "content-type": "application/json" })
+      .end(JSON.stringify({ error: { message: "Test translator credential rejected" } }))
     return
   }
   const serialized = JSON.stringify(input.messages)
@@ -64,7 +71,12 @@ try {
   const providerURL = `http://127.0.0.1:${provider.address().port}/v1`
   const config = {
     $schema: "https://opencode.ai/config.json",
-    plugins: [{ package: path.dirname(entrypoint), options: { model: "translate-test/translator", lang: "Korean" } }],
+    plugins: [
+      {
+        package: process.env.OPENCODE_TRANSLATE_PACKAGE ?? path.dirname(entrypoint),
+        options: { model: "translate-test/translator", lang: "Korean" },
+      },
+    ],
     model: "translate-test/main",
     snapshots: false,
     providers: {
@@ -167,6 +179,38 @@ try {
   const credential = db.prepare("SELECT value FROM credential WHERE integration_id = ?").get("translate-test")
   assert.equal(JSON.parse(credential.value).key, key)
   db.close()
+  const failed = await api("/api/session", {
+    title: "Failed activation regression",
+    location: { directory: path.join(root, "project") },
+    model: { providerID: "translate-test", id: "main" },
+  })
+  const failedID = failed.data.id
+  translatorFailure = true
+  const failureStart = requests.length
+  await api(`/api/session/${failedID}/prompt`, { text: "$en Hi?? Who are you?" })
+  await api(`/api/session/${failedID}/wait`, {})
+  const failedHistory = await api(`/api/session/${failedID}/context`)
+  const failedPrompt = failedHistory.data.find((message) => message.type === "user")
+  assert(
+    failedPrompt?.text.includes("Translation failed:"),
+    `Translator failure must be visible: ${JSON.stringify(failedHistory)}`,
+  )
+  assert(
+    failedPrompt.text.includes("Test translator credential rejected"),
+    "must display the public tagged error's message",
+  )
+  assert(!failedPrompt.text.includes("$en"))
+  const failedRequests = requests.slice(failureStart).filter(({ input }) => input.model === "main")
+  assert(failedRequests.length > 0)
+  assert(
+    failedRequests.every(
+      ({ input }) =>
+        !JSON.stringify(input.messages).includes("$en") &&
+        !JSON.stringify(input.messages).includes("Translation failed:"),
+    ),
+    "main model must receive only original text on failure",
+  )
+  translatorFailure = false
   const created = await api("/api/session", {
     title: "Translation smoke test",
     location: { directory: path.join(root, "project") },
@@ -196,6 +240,13 @@ try {
   )
   await stop()
   await start()
+  const recoveredStart = requests.length
+  await api(`/api/session/${failedID}/prompt`, { text: "Hello again" })
+  await api(`/api/session/${failedID}/wait`, {})
+  assert(
+    !requests.slice(recoveredStart).some(({ input }) => input.model === "translator"),
+    "failed activation must remain inactive after restart",
+  )
   key = "rotated-sqlite-key"
   await api("/api/integration/translate-test/connect/key", { key })
   const before = requests.length
@@ -217,7 +268,7 @@ try {
     "history sent to main model must be English",
   )
   console.log(
-    "Real OpenCode smoke passed: plugin activation, SQLite credentials/rotation, bilingual persisted transcript, English model context, restart recovery.",
+    "Real OpenCode smoke passed: plugin activation, SQLite credentials/rotation, bilingual persisted transcript, English model context, restart recovery, visible translation failures.",
   )
 } catch (error) {
   console.error(logs)
