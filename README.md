@@ -93,6 +93,11 @@ If replies translate but your own prompt still looks untranslated in the **Web U
 composer input even when `text` contained the English translation. The prompt hook now synchronizes that presentation
 field. This applies to newly admitted prompts; it does not rewrite presentation metadata on older messages.
 
+For the Question tool, OpenCode can freeze the provider-owned question arrays. Versions up to 2.0.3 tried to mutate
+those arrays and fell back to English even after obtaining a valid translation. The before-tool hook now translates a
+copy and replaces `event.input`, preserving the original provider data. Already pending questions need a new tool
+invocation to pick up this fix.
+
 OpenCode 2.0.3 also normalizes the legacy `"plugin": [["package", { ...options }]]` tuple syntax; that syntax alone
 does not prevent this plugin from loading. The `plugins` object form shown above is the recommended v2 format.
 Make sure the configuration is a complete JSON/JSONC object, including its opening `{`.
@@ -188,6 +193,8 @@ OPENCODE_BINARY=/path/to/opencode OPENCODE_TRANSLATE_REQUIRE_SESSION=0 bun run t
 Tests include OpenCode's actual native protocol parsers. The real-host smoke test loads the built plugin, creates and
 rotates a test credential in an isolated SQLite database, checks bilingual persisted messages and English-only model
 requests, and restarts the server to verify recovery. It does not use your live server, credentials, or paid models.
+It also executes the real Question tool, checks translated form fields, submits selected options and a Korean custom
+answer, and verifies that the next model request contains the original English questions and English answers.
 CI covers both configuration formats and both generation paths. The publish workflow tests the candidate before
 publishing, then installs the exact version from npm in OpenCode before creating its GitHub release.
 

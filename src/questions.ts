@@ -20,15 +20,20 @@ export async function registerQuestionHooks(
     if (event.tool !== "question" || !isQuestionArgs(event.input)) return
     const lang = await state.language(event.sessionID)
     if (!lang) return
-    const original = snapshotQuestions(event.input)
+    const args = event.input
+    const original = snapshotQuestions(args)
+    // OpenCode freezes provider-owned question arrays. The hook owns the input
+    // slot, not that nested data: translate a copy and replace the slot atomically.
+    const translated = { ...args, questions: snapshotQuestions(args) }
     try {
       // The after hook's input is readonly in v2. Persist the original for the
       // context hook instead of mutating completed tool calls in the transcript.
       await ctx.storage.set(`questions/${event.sessionID}/${event.id}`, JSON.stringify({ questions: original }))
-      await translateQuestionArgs(event.input, (texts) => translator.texts(texts, LLM_LANGUAGE, lang))
+      await translateQuestionArgs(translated, (texts) => translator.texts(texts, LLM_LANGUAGE, lang))
+      event.input = translated
       snapshots.set(`${event.sessionID}/${event.id}`, {
         original,
-        translated: snapshotQuestions(event.input),
+        translated: snapshotQuestions(translated),
         userLanguage: lang,
       })
       // Cancellation defects in older hosts bypass execute.after.

@@ -3,6 +3,50 @@ import { setup } from "../src/activation"
 import { host, requestContext } from "./helpers"
 import { cloneSampleArgs } from "./question-tool/helpers"
 
+test("before hook replaces frozen provider input and preserves the original question data", async () => {
+  const h = host()
+  h.values.set("sessions/ses_1", "Korean")
+  h.generate(async (input) =>
+    input
+      .match(/<segment index="\d+">[\s\S]*?<\/segment>/g)!
+      .map((text) => text.replace(/(<segment index="\d+">\n)([\s\S]*?)(\n<\/segment>)/, "$1translated:$2$3"))
+      .join("\n"),
+  )
+  await setup(h.ctx)
+  const original = cloneSampleArgs()
+  for (const question of original.questions) {
+    for (const option of question.options) Object.freeze(option)
+    Object.freeze(question.options)
+    Object.freeze(question)
+  }
+  Object.freeze(original.questions)
+  Object.freeze(original)
+  const event = { tool: "question", sessionID: "ses_1", id: "frozen_call", input: original }
+  const log = spyOn(console, "error").mockImplementation(() => {})
+  try {
+    await h.emit("tool.execute.before", event)
+    expect(log).not.toHaveBeenCalled()
+  } finally {
+    log.mockRestore()
+  }
+  expect(event.input).not.toBe(original)
+  expect(event.input.questions[0].question).toBe("translated:Are you sure?")
+  expect(event.input.questions[0].options[0].label).toBe("translated:Yes, delete")
+  expect(original).toEqual(cloneSampleArgs())
+  const after = {
+    ...event,
+    status: "completed",
+    result: {
+      content: "question result",
+      output: { answers: [["translated:Yes, delete"]] },
+      metadata: { answers: [["translated:Yes, delete"]] },
+    },
+  }
+  await h.emit("tool.execute.after", after)
+  expect(after.result.output.answers).toEqual([["Yes, delete"]])
+  expect(after.result.content).toContain('"Are you sure?"="Yes, delete"')
+})
+
 test("v2 question forms translate, restore labels and custom answers, and update structured output", async () => {
   const h = host()
   h.values.set("sessions/ses_1", "Korean")

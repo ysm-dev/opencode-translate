@@ -17,8 +17,43 @@ const requests = []
 const sessionOnly = process.env.OPENCODE_TRANSLATE_REQUIRE_SESSION !== "0"
 let key = "test-sqlite-key"
 let translatorFailure = false
+let askQuestion = false
 let child
 let logs = ""
+const questions = [
+  {
+    question: "Which color do you prefer?",
+    header: "Color",
+    multiple: true,
+    options: [
+      { label: "Blue", description: "Cool color" },
+      { label: "Red", description: "Warm color" },
+    ],
+  },
+  {
+    question: "What should we prioritize?",
+    header: "Priority",
+    options: [
+      { label: "Speed", description: "Finish quickly" },
+      { label: "Quality", description: "Check carefully" },
+    ],
+  },
+]
+const translatedFields = {
+  "Which color do you prefer?": "어떤 색을 선호하시나요?",
+  Color: "색상",
+  Blue: "파란색",
+  "Cool color": "차가운 색",
+  Red: "빨간색",
+  "Warm color": "따뜻한 색",
+  "What should we prioritize?": "무엇을 우선시할까요?",
+  Priority: "우선순위",
+  Speed: "속도",
+  "Finish quickly": "빨리 완료",
+  Quality: "품질",
+  "Check carefully": "꼼꼼히 확인",
+  "보안 검토를 먼저 해주세요": "Please review security first",
+}
 const provider = createServer(async (req, res) => {
   let text = ""
   for await (const chunk of req) text += chunk
@@ -49,12 +84,35 @@ const provider = createServer(async (req, res) => {
       .end(JSON.stringify({ error: { message: "OpenCode's free tier can only be used in OpenCode." } }))
     return
   }
+  if (askQuestion && input.model === "main") {
+    askQuestion = false
+    res.writeHead(200, { "content-type": "text/event-stream" })
+    res.end(
+      `data: ${JSON.stringify({ id: "question_test", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: "call_question_test", type: "function", function: { name: "question", arguments: JSON.stringify({ questions }) } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`,
+    )
+    return
+  }
   const serialized = JSON.stringify(input.messages)
+  const prompt = input.messages
+    .map((message) =>
+      typeof message.content === "string"
+        ? message.content
+        : (message.content ?? [])
+            .filter((part) => part.type === "text")
+            .map((part) => part.text)
+            .join("\n"),
+    )
+    .join("\n")
+  const segments = [...prompt.matchAll(/<segment index="(\d+)">\n([\s\S]*?)\n<\/segment>/g)]
   const content =
     input.model === "translator"
-      ? serialized.includes("from Korean to English")
-        ? "Hello"
-        : "안녕하세요"
+      ? segments.length
+        ? segments
+            .map(([, index, text]) => `<segment index="${index}">\n${translatedFields[text] ?? text}\n</segment>`)
+            .join("\n")
+        : serialized.includes("from Korean to English")
+          ? "Hello"
+          : "안녕하세요"
       : "Hello from the assistant"
   res.writeHead(200, { "content-type": "text/event-stream" })
   res.end(
@@ -315,8 +373,48 @@ try {
     const helperHistory = await api(`/api/session/${helperID}/context`)
     assert.equal(helperHistory.data.length, 0, "translation generation must not append conversation history")
   }
+  askQuestion = true
+  const beforeQuestion = requests.length
+  await api(`/api/session/${sessionID}/prompt`, webPrompt("질문을 해주세요"))
+  let form
+  for (let attempt = 0; attempt < 100; attempt++) {
+    form = (await api(`/api/session/${sessionID}/form`)).data.find((item) => item.metadata?.kind === "question")
+    if (form) break
+    await sleep(100)
+  }
+  assert(form, "the real question tool must publish a form")
+  assert.equal(
+    form.fields[0].description,
+    "어떤 색을 선호하시나요?",
+    "frozen tool inputs must be replaced with translated input",
+  )
+  assert.equal(form.fields[0].title, "색상")
+  assert.deepEqual(
+    form.fields[0].options.map((option) => option.label),
+    ["파란색", "빨간색"],
+  )
+  assert.equal(form.fields[1].description, "무엇을 우선시할까요?")
+  await api(`/api/session/${sessionID}/form/${form.id}/reply`, {
+    answer: { q0: ["파란색", "빨간색"], q1: "보안 검토를 먼저 해주세요" },
+  })
+  await api(`/api/session/${sessionID}/wait`, {})
+  const continuation = requests
+    .slice(beforeQuestion)
+    .filter(({ input }) => input.model === "main" && input.messages.some((message) => message.role === "tool"))
+    .at(-1)
+  assert(continuation, "the assistant must receive the answered question")
+  const answers = continuation.input.messages
+    .filter((message) => message.role === "tool")
+    .map((message) => message.content)
+    .join("\n")
+  assert(answers.includes('"Which color do you prefer?"="Blue, Red"'), answers)
+  assert(answers.includes('"What should we prioritize?"="Please review security first"'), answers)
+  assert(
+    !/[가-힣]/.test(JSON.stringify(continuation.input.messages)),
+    "question inputs and answers sent to the main model must be English",
+  )
   console.log(
-    `Real OpenCode smoke passed (${sessionOnly ? "session-only" : "stateless"} generation): plugin activation, SQLite credentials/rotation, bilingual persisted transcript, English model context, restart recovery, visible translation failures.`,
+    `Real OpenCode smoke passed (${sessionOnly ? "session-only" : "stateless"} generation): plugin activation, SQLite credentials/rotation, bilingual persisted transcript, English model context, restart recovery, visible translation failures, translated question forms and answers.`,
   )
 } catch (error) {
   console.error(logs)
