@@ -1,5 +1,5 @@
-import { AUTH_ENV_FALLBACK, DEFAULT_TRIGGER, PLUGIN_NAME } from "./plugin"
-import type { ProviderInfo, ResolvedTranslateOptions } from "./types"
+import { DEFAULT_TRIGGER, PLUGIN_NAME } from "./plugin"
+import type { ResolvedTranslateOptions } from "./types"
 
 export function resolveOptions(options: Record<string, unknown>): ResolvedTranslateOptions {
   const model = typeof options.model === "string" ? options.model.trim() : ""
@@ -37,10 +37,6 @@ export function resolveOptions(options: Record<string, unknown>): ResolvedTransl
     lang,
     verbose: options.verbose === true,
   }
-}
-
-export function getEnvVarHint(provider: ProviderInfo | undefined): string {
-  return provider?.env[0] || AUTH_ENV_FALLBACK
 }
 
 export function parseTranslatorModel(model: string): { providerID: string; modelID: string } {

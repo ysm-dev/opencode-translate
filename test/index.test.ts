@@ -1,17 +1,18 @@
-import { afterEach, expect, test } from "bun:test"
-import OpencodeTranslate, { OpencodeTranslate as namedPlugin } from "../src/index"
+import { expect, test } from "bun:test"
+import plugin, { OpencodeTranslate } from "../src/index"
+import { host } from "./helpers"
 
-afterEach(() => {
-  delete process.env.OPENCODE_TRANSLATE_DISABLE
-})
-
-test("default export and named plugin share the same implementation", async () => {
-  process.env.OPENCODE_TRANSLATE_DISABLE = "1"
-  const ctx = {
-    client: {},
-    directory: "/workspace",
+test("v2 exports the stable definition and honors the disable flag without validating options", async () => {
+  expect(plugin).toBe(OpencodeTranslate)
+  expect(plugin.id).toBe("opencode-translate")
+  const h = host({ model: "" })
+  const previous = process.env.OPENCODE_TRANSLATE_DISABLE
+  try {
+    process.env.OPENCODE_TRANSLATE_DISABLE = "1"
+    expect(await plugin.setup(h.ctx)).toBeUndefined()
+    expect(h.callbacks.size).toBe(0)
+  } finally {
+    if (previous === undefined) delete process.env.OPENCODE_TRANSLATE_DISABLE
+    else process.env.OPENCODE_TRANSLATE_DISABLE = previous
   }
-
-  expect(OpencodeTranslate).toBe(namedPlugin)
-  expect(await OpencodeTranslate(ctx as never, {})).toEqual({})
 })

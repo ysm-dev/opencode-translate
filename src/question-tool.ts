@@ -6,8 +6,8 @@
 //   2. `tool.execute.before` hook translates all question text, headers, and
 //      option labels + descriptions into the configured `lang` so the question
 //      prompt renders in the user's language.
-//   3. OpenCode publishes `question.asked`; the TUI shows the translated
-//      dialog and the user picks an option (or types a custom answer).
+//   3. OpenCode displays the translated form in the terminal/web UI and the
+//      user picks an option (or types a custom answer).
 //   4. `tool.execute.after` hook reverses the substitution using the
 //      snapshot we captured in step 2. Selected options are restored by
 //      label mapping; non-empty custom answers are translated like normal
@@ -66,10 +66,6 @@ function cloneQuestion(q: TextRecord): TextRecord {
 
 export function snapshotQuestions(args: QuestionArgs): TextRecord[] {
   return args.questions.map(cloneQuestion)
-}
-
-export function restoreQuestionArgs(args: QuestionArgs, original: readonly TextRecord[]): void {
-  args.questions.splice(0, args.questions.length, ...original.map(cloneQuestion))
 }
 
 export function isQuestionArgs(value: unknown): value is QuestionArgs {
@@ -199,7 +195,7 @@ function formatRestoredOutput(original: readonly TextRecord[], answers: readonly
 
 // Reconstruct the exact output string the question tool would have produced
 // if it had been called with the original English args. Mirrors the format
-// in `packages/opencode/src/tool/question.ts` (as of opencode 1.14.x).
+// in OpenCode v2's public question-tool result.
 export async function buildRestoredOutput(
   original: readonly TextRecord[],
   translated: readonly TextRecord[],
