@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url"
 const root = await mkdtemp(path.join(process.env.OPENCODE_TRANSLATE_TEST_TMP ?? tmpdir(), "translate-host-"))
 const entrypoint = fileURLToPath(new URL("../dist/index.js", import.meta.url))
 const requests = []
+const sessionOnly = process.env.OPENCODE_TRANSLATE_REQUIRE_SESSION !== "0"
 let key = "test-sqlite-key"
 let translatorFailure = false
 let child
@@ -22,7 +23,12 @@ const provider = createServer(async (req, res) => {
   let text = ""
   for await (const chunk of req) text += chunk
   const input = JSON.parse(text)
-  requests.push({ input, authorization: req.headers.authorization })
+  requests.push({
+    input,
+    authorization: req.headers.authorization,
+    sessionID: req.headers["x-opencode-session"],
+    client: req.headers["x-opencode-client"],
+  })
   if (req.headers.authorization !== `Bearer ${key}`) {
     res.writeHead(401).end("Unexpected credential")
     return
@@ -31,6 +37,16 @@ const provider = createServer(async (req, res) => {
     res
       .writeHead(401, { "content-type": "application/json" })
       .end(JSON.stringify({ error: { message: "Test translator credential rejected" } }))
+    return
+  }
+  if (
+    sessionOnly &&
+    input.model === "translator" &&
+    (!req.headers["x-opencode-session"] || !req.headers["x-opencode-client"])
+  ) {
+    res
+      .writeHead(403, { "content-type": "application/json" })
+      .end(JSON.stringify({ error: { message: "OpenCode's free tier can only be used in OpenCode." } }))
     return
   }
   const serialized = JSON.stringify(input.messages)
@@ -69,14 +85,15 @@ try {
   provider.listen(0, "127.0.0.1")
   await once(provider, "listening")
   const providerURL = `http://127.0.0.1:${provider.address().port}/v1`
+  const plugin = {
+    package: process.env.OPENCODE_TRANSLATE_PACKAGE ?? path.dirname(entrypoint),
+    options: { model: "translate-test/translator", lang: "Korean" },
+  }
   const config = {
     $schema: "https://opencode.ai/config.json",
-    plugins: [
-      {
-        package: process.env.OPENCODE_TRANSLATE_PACKAGE ?? path.dirname(entrypoint),
-        options: { model: "translate-test/translator", lang: "Korean" },
-      },
-    ],
+    ...(process.env.OPENCODE_TRANSLATE_LEGACY_CONFIG === "1"
+      ? { plugin: [[plugin.package, plugin.options]] }
+      : { plugins: [plugin] }),
     model: "translate-test/main",
     snapshots: false,
     providers: {
@@ -267,8 +284,19 @@ try {
       .every(({ input }) => !/[가-힣]/.test(JSON.stringify(input.messages))),
     "history sent to main model must be English",
   )
+  const helperIDs = new Set(
+    requests
+      .filter(({ input, sessionID }) => input.model === "translator" && sessionID)
+      .map(({ sessionID }) => sessionID),
+  )
+  assert.equal(helperIDs.size, sessionOnly ? 1 : 0, "use one persistent helper only for session-only providers")
+  if (sessionOnly) {
+    const helperID = [...helperIDs][0]
+    const helperHistory = await api(`/api/session/${helperID}/context`)
+    assert.equal(helperHistory.data.length, 0, "translation generation must not append conversation history")
+  }
   console.log(
-    "Real OpenCode smoke passed: plugin activation, SQLite credentials/rotation, bilingual persisted transcript, English model context, restart recovery, visible translation failures.",
+    `Real OpenCode smoke passed (${sessionOnly ? "session-only" : "stateless"} generation): plugin activation, SQLite credentials/rotation, bilingual persisted transcript, English model context, restart recovery, visible translation failures.`,
   )
 } catch (error) {
   console.error(logs)

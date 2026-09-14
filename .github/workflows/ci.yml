@@ -15,6 +15,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -46,6 +47,36 @@ jobs:
 
       - name: Test published package
         run: bun run test:package
+
+  host:
+    name: OpenCode host (${{ matrix.config }}, ${{ matrix.generation }})
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [v2, legacy]
+        generation: [stateless, session-only]
+    env:
+      OPENCODE_TRANSLATE_LEGACY_CONFIG: ${{ matrix.config == 'legacy' && '1' || '0' }}
+      OPENCODE_TRANSLATE_REQUIRE_SESSION: ${{ matrix.generation == 'session-only' && '1' || '0' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install
+        run: bun install --frozen-lockfile
 
       - name: Test isolated OpenCode v2 host
         run: npm exec --yes --package=@opencode/cli@2.0.3 -- bun run test:host

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import type { Plugin } from "@opencode/plugin"
 import { PLUGIN_NAME, parseTranslatorModel, type ResolvedTranslateOptions } from "./constants"
 import {
@@ -14,8 +15,8 @@ export interface Translator {
   texts(texts: readonly string[], sourceLanguage: string, targetLanguage: string): Promise<string[]>
 }
 
-// Stateless generation uses the host's catalog, SQLite credentials and OAuth refresh.
-// It does not enter the session hooks and cannot recursively translate itself.
+// Both generation paths use the host's catalog, SQLite credentials and OAuth
+// refresh. Session-only providers need the host's session request metadata too.
 export function createTranslator(
   ctx: Plugin.Context,
   options: ResolvedTranslateOptions,
@@ -23,6 +24,73 @@ export function createTranslator(
 ): Translator {
   const { providerID, modelID } = parseTranslatorModel(options.model)
   const model = { providerID, id: modelID, ...(options.variant ? { variant: options.variant } : {}) }
+  let sessionRequired = false
+  let helper: Promise<string> | undefined
+
+  function helperSession() {
+    if (helper) return helper
+    helper = (async () => {
+      const key = `translator-session/${createHash("sha256")
+        .update(
+          JSON.stringify({ directory: ctx.location.directory, workspaceID: ctx.location.workspaceID ?? null, model }),
+        )
+        .digest("hex")}`
+      const saved = await ctx.storage.get(key)
+      // Session deletion is a normal user operation; recreate a missing helper.
+      // Other failures should retain their actual error instead of creating sessions.
+      const previous =
+        typeof saved === "string"
+          ? await ctx.session.get({ sessionID: saved }).catch((error: unknown) => {
+              if (error && typeof error === "object" && "_tag" in error && /NotFound/.test(String(error._tag)))
+                return undefined
+              throw error
+            })
+          : undefined
+      const session =
+        previous ??
+        (await ctx.session.create({
+          title: `Translation helper (${options.model})`,
+          model,
+          location: {
+            directory: ctx.location.directory,
+            ...(ctx.location.workspaceID ? { workspaceID: ctx.location.workspaceID } : {}),
+          },
+          metadata: { "opencode-translate": { helper: true } },
+        }))
+      await ctx.storage.set(key, session.id)
+      // Keep OpenCode's genuine system/request identity. Only the current
+      // translation prompt is model-visible, and generation cannot call tools.
+      await ctx.session.hook(Number.parseInt(ctx.app.version, 10) >= 2 ? "generate" : "context", (event) => {
+        if (event.sessionID !== session.id) return
+        event.messages = event.messages.slice(-1)
+        event.tools = {}
+      })
+      return session.id
+    })().catch((error: unknown) => {
+      helper = undefined
+      throw error
+    })
+    return helper
+  }
+
+  async function request(prompt: string, abort: AbortSignal) {
+    if (!sessionRequired) {
+      try {
+        return await ctx.generate.text({ model, prompt }, { signal: abort })
+      } catch (error) {
+        const message = error && typeof error === "object" && "message" in error ? String(error.message) : String(error)
+        // OpenCode 2.0.3's stateless path omits the metadata required by its free
+        // tier. Use a real OpenCode session request rather than fabricating headers.
+        if (!message.includes("free tier can only be used in OpenCode")) throw error
+        abort.throwIfAborted()
+        sessionRequired = true
+      }
+    }
+    const sessionID = await helperSession()
+    abort.throwIfAborted()
+    return ctx.session.generate({ sessionID, prompt }, { signal: abort })
+  }
+
   async function generate(prompt: string, requestSignal?: AbortSignal) {
     const started = Date.now()
     const abort = AbortSignal.any([signal, AbortSignal.timeout(180_000), ...(requestSignal ? [requestSignal] : [])])
@@ -36,7 +104,7 @@ export function createTranslator(
     const stop = () => rejectCancelled(abort.reason)
     abort.addEventListener("abort", stop, { once: true })
     try {
-      const result = await Promise.race([ctx.generate.text({ model, prompt }, { signal: abort }), cancelled])
+      const result = await Promise.race([request(prompt, abort), cancelled])
       if (options.verbose)
         console.info(`[${PLUGIN_NAME}] translated with ${options.model} in ${Date.now() - started}ms`)
       return result.text

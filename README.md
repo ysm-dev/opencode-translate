@@ -87,12 +87,52 @@ package, not an old pinned `opencode-translate@1.x`. Also check the configured *
 the main-chat model does not change the translator. An API-key login or OAuth connection must exist on that server.
 The server log message `[opencode-translate] inbound translation failed` contains the underlying generation error.
 
+OpenCode 2.0.3 also normalizes the legacy `"plugin": [["package", { ...options }]]` tuple syntax; that syntax alone
+does not prevent this plugin from loading. The `plugins` object form shown above is the recommended v2 format.
+Make sure the configuration is a complete JSON/JSONC object, including its opening `{`.
+
+If there is neither an activation confirmation nor a failure notice, inspect the running server's plugin state for the
+same directory as the session:
+
+```sh
+opencode api v2.plugin.awaitActivation --param 'location[directory]=/absolute/path/to/project'
+opencode api v2.plugin.list --param 'location[directory]=/absolute/path/to/project'
+```
+
+Find `opencode-translate`, check `source.version` and `state.status`, and inspect `state.error` if setup failed. If the UI
+uses a remote or explicitly selected server, pass `--server` with that same server URL. A client version or a globally
+installed npm version alone does not establish what the session's server has loaded.
+
 ## Authentication
 
 Connect the translation model's provider in **OpenCode itself**. Translation uses the public `ctx.generate.text()` API,
-so OpenCode owns provider selection, model variants, API keys, SQLite credentials, and OAuth refresh/persistence.
+with a `ctx.session.generate()` fallback for providers that require an OpenCode session. OpenCode owns provider
+selection, model variants, API keys, SQLite credentials, and OAuth refresh/persistence.
 The plugin does not read `auth.json`/`auth-v2.json`, query the credential database, or maintain separate tokens.
 Provider and OAuth support for the translation model is the support available in your OpenCode installation.
+
+Verified on OpenCode 2.0.3 using the host's saved credentials:
+
+| Translation model | Result |
+| --- | --- |
+| `openai/gpt-5.6-luna` | Inbound, outbound, and follow-up translation passed through stateless generation with ChatGPT OAuth. |
+| `opencode/muse-spark-1.3-contributor-free` | Passed through the session-aware fallback described below. |
+| `anthropic/claude-sonnet-5` with `@henadev/opencode-anthropic-auth@0.2.0` | Works as the main chat model, but not as the translator in this release: its auth plugin depends on session HTTP hooks that stateless generation skips. |
+
+Anthropic translation succeeded in a session-aware experiment, but the automatic fallback in this release is limited
+to the explicit OpenCode free-tier rejection. It does not retry generic authentication errors through another path.
+
+### OpenCode free-tier translation models
+
+OpenCode 2.0.3 can reject stateless generation for free-tier models with `OpenCode's free tier can only be used in
+OpenCode.` This was reproduced with `opencode/muse-spark-1.3-contributor-free`: normal session generation succeeds,
+but `ctx.generate.text()` lacks the session request metadata accepted by that provider.
+
+On this specific rejection, the plugin switches to public session-aware generation using a reusable **Translation
+helper** session for the configured model and location. The helper may appear in the session list. Translation prompts
+are transient: they do not append messages to either the helper or your chat, they cannot execute tools, and each
+generation receives only the current translation prompt plus OpenCode's system instructions. The helper ID survives
+plugin/server restarts. Other authentication or model-selection failures still report their original error.
 
 ## Inline reply support
 
@@ -131,11 +171,19 @@ OPENCODE_BINARY=/path/to/opencode bun run test:host
 
 # Exercise a registry-installed package through OpenCode's actual package loader.
 OPENCODE_BINARY=/path/to/opencode OPENCODE_TRANSLATE_PACKAGE=opencode-translate@latest bun run test:host
+
+# Verify OpenCode's normalization of legacy plugin tuples as well.
+OPENCODE_BINARY=/path/to/opencode OPENCODE_TRANSLATE_LEGACY_CONFIG=1 bun run test:host
+
+# Verify providers that support ordinary stateless generation.
+OPENCODE_BINARY=/path/to/opencode OPENCODE_TRANSLATE_REQUIRE_SESSION=0 bun run test:host
 ```
 
 Tests include OpenCode's actual native protocol parsers. The real-host smoke test loads the built plugin, creates and
 rotates a test credential in an isolated SQLite database, checks bilingual persisted messages and English-only model
 requests, and restarts the server to verify recovery. It does not use your live server, credentials, or paid models.
+CI covers both configuration formats and both generation paths. The publish workflow tests the candidate before
+publishing, then installs the exact version from npm in OpenCode before creating its GitHub release.
 
 The old `opencode2 v0.0.0-dev-18322` binary does not pass this migration's host smoke test. Use the verified 2.0.3 release
 rather than assuming that any binary named `opencode2` exposes the current plugin API.

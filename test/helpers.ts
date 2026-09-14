@@ -2,30 +2,54 @@ import type { Plugin } from "@opencode/plugin"
 
 export function host(options: Record<string, unknown> = {}) {
   const values = new Map<string, unknown>()
-  const callbacks = new Map<string, (event: unknown) => Promise<void>>()
+  const callbacks = new Map<string, ((event: unknown) => Promise<void> | void)[]>()
   const history: Record<string, { type: string; metadata?: Record<string, unknown> }[]> = {}
   const children = new Set<string>()
   const forks = new Map<string, string>()
   const requests: { model: unknown; prompt: string }[] = []
+  const createdSessions: Record<string, unknown>[] = []
+  const sessionRequests: { sessionID: string; prompt: string }[] = []
+  const missingSessions = new Set<string>()
   let generate = async (_prompt: string) => "translated"
-  const hook = (domain: string) => async (name: string, callback: (event: unknown) => Promise<void>) => {
-    callbacks.set(`${domain}.${name}`, callback)
+  let sessionGenerate = async (_prompt: string) => "session-translated"
+  const hook = (domain: string) => async (name: string, callback: (event: unknown) => Promise<void> | void) => {
+    const key = `${domain}.${name}`
+    callbacks.set(key, [...(callbacks.get(key) ?? []), callback])
     return {
       dispose: async () => {
-        callbacks.delete(`${domain}.${name}`)
+        const remaining = callbacks.get(key)?.filter((item) => item !== callback) ?? []
+        if (remaining.length) callbacks.set(key, remaining)
+        else callbacks.delete(key)
       },
     }
   }
   const ctx = {
-    app: { version: "2.0.3" },
+    app: { version: "2.0.3", name: "opencode", channel: "latest" },
+    location: {
+      directory: "/test/project",
+      project: { id: "project_1", directory: "/test/project", canonical: "/test/project" },
+    },
     options: { model: "openai/gpt-5.4-mini", lang: "Korean", ...options },
     session: {
       hook: hook("session"),
-      get: async ({ sessionID }: { sessionID: string }) => ({
-        id: sessionID,
-        parentID: children.has(sessionID) ? "parent" : undefined,
-        fork: forks.has(sessionID) ? { sessionID: forks.get(sessionID) } : undefined,
-      }),
+      get: async ({ sessionID }: { sessionID: string }) => {
+        if (missingSessions.has(sessionID))
+          return Promise.reject({ _tag: "SessionNotFoundError", message: "Missing session" })
+        return {
+          id: sessionID,
+          parentID: children.has(sessionID) ? "parent" : undefined,
+          fork: forks.has(sessionID) ? { sessionID: forks.get(sessionID) } : undefined,
+        }
+      },
+      create: async (input: Record<string, unknown>) => {
+        const session = { ...input, id: `ses_helper_${createdSessions.length + 1}` }
+        createdSessions.push(session)
+        return session
+      },
+      generate: async (input: { sessionID: string; prompt: string }) => {
+        sessionRequests.push(input)
+        return { text: await sessionGenerate(input.prompt) }
+      },
       context: async ({ sessionID }: { sessionID: string }) => history[sessionID] ?? [],
     },
     tool: { hook: hook("tool") },
@@ -60,13 +84,19 @@ export function host(options: Record<string, unknown> = {}) {
     forks,
     history,
     requests,
+    createdSessions,
+    sessionRequests,
+    missingSessions,
     generate: (impl: typeof generate) => {
       generate = impl
     },
+    sessionGenerate: (impl: typeof sessionGenerate) => {
+      sessionGenerate = impl
+    },
     async emit(name: string, event: unknown) {
-      const callback = callbacks.get(name)
-      if (!callback) throw new Error(`Missing hook ${name}`)
-      await callback(event)
+      const registered = callbacks.get(name)
+      if (!registered) throw new Error(`Missing hook ${name}`)
+      for (const callback of registered) await callback(event)
     },
   }
 }
