@@ -78,6 +78,63 @@ describe("v2 lifecycle and admission", () => {
     expect(h.requests).toHaveLength(2)
     expect(h.requests[1].prompt).toContain("다음 질문")
   })
+  test("Web UI presentation shows translations and confirmation on activation and follow-up", async () => {
+    const h = host()
+    h.generate(async () => "Hi. Who are you?")
+    await setup(h.ctx)
+    const input = prompt("$en 안녕? 넌 누구야?")
+    input.metadata = {
+      displayText: input.prompt.text,
+      comments: [],
+      agent: "build",
+      model: { providerID: "openai", id: "main" },
+    }
+    await h.emit("session.prompt", input)
+    expect(input.metadata.displayText).toBe(input.prompt.text)
+    expect(input.metadata.displayText).toContain("→ EN: Hi. Who are you?")
+    expect(input.metadata.displayText).toContain("Translation enabled:")
+    expect(input.metadata.displayText).not.toContain("$en")
+    expect(input.metadata.comments).toEqual([])
+    expect(input.metadata.agent).toBe("build")
+    expect(input.metadata.model).toEqual({ providerID: "openai", id: "main" })
+    const next = prompt("감사합니다")
+    next.metadata = { displayText: next.prompt.text, comments: [] }
+    await h.emit("session.prompt", next)
+    expect(next.metadata.displayText).toBe(next.prompt.text)
+    expect(next.metadata.displayText).toContain("→ EN:")
+    expect(next.metadata.displayText).not.toContain("Translation enabled:")
+  })
+  test("Web UI failure notices are visible while unrelated presentation metadata is preserved", async () => {
+    const h = host()
+    h.generate(async () => Promise.reject({ message: "Translator unavailable" }))
+    await setup(h.ctx)
+    const input = prompt()
+    input.metadata = { displayText: input.prompt.text, comments: [], clientField: true }
+    const log = spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await h.emit("session.prompt", input)
+    } finally {
+      log.mockRestore()
+    }
+    expect(input.metadata.displayText).toBe(input.prompt.text)
+    expect(input.metadata.displayText).toContain("Translation failed: Translator unavailable")
+    expect(input.metadata.clientField).toBe(true)
+    expect(h.values.get("sessions/ses_1")).toBeUndefined()
+  })
+  test("Web review comments stay in their cards rather than being duplicated in the original visible text", async () => {
+    const h = host()
+    h.generate(async () => "Review the code and fix the typo.")
+    await setup(h.ctx)
+    const note = "The user made the following comment regarding line 3 of src/index.ts: 오타 수정"
+    const input = prompt(`$en 검토해주세요\n${note}`)
+    const comments = [{ path: "src/index.ts", comment: "오타 수정", origin: "review" }]
+    input.metadata = { displayText: "$en 검토해주세요", comments }
+    await h.emit("session.prompt", input)
+    expect(input.prompt.text).toContain(note)
+    expect(input.metadata.displayText).toStartWith("검토해주세요\n\n→ EN: Review the code and fix the typo.")
+    expect(input.metadata.displayText).not.toContain(note)
+    expect(input.metadata.comments).toEqual(comments)
+  })
   test("recovers state from durable admission metadata", async () => {
     const h = host()
     h.history.ses_1 = [

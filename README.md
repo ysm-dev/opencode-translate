@@ -64,6 +64,7 @@ $en 프로젝트 루트의 package.json을 읽고 요약해줘
 All subsequent messages in the same session are translated automatically — no need to repeat `$en`.
 
 - Your original message and its English translation remain visible in the transcript.
+- Web composer presentation metadata is synchronized with the translated prompt, including failure notices; review-comment cards are preserved.
 - The first successful `$en` prompt includes a `Translation enabled:` confirmation with the language and translator model.
 - English assistant text streams normally; a translated Markdown section is appended when the text segment completes.
 - Both the **terminal and web UI** display the same persisted bilingual assistant text. No UI-specific plugin is needed.
@@ -86,6 +87,11 @@ Check the active server's plugin list and configuration, including the selected 
 package, not an old pinned `opencode-translate@1.x`. Also check the configured **translation** model and variant; changing
 the main-chat model does not change the translator. An API-key login or OAuth connection must exist on that server.
 The server log message `[opencode-translate] inbound translation failed` contains the underlying generation error.
+
+If replies translate but your own prompt still looks untranslated in the **Web UI**, inspect the stored user message's
+`text` and `metadata.displayText`. The Web UI prefers `displayText`, which versions up to 2.0.2 left at the original
+composer input even when `text` contained the English translation. The prompt hook now synchronizes that presentation
+field. This applies to newly admitted prompts; it does not rewrite presentation metadata on older messages.
 
 OpenCode 2.0.3 also normalizes the legacy `"plugin": [["package", { ...options }]]` tuple syntax; that syntax alone
 does not prevent this plugin from loading. The `plugins` object form shown above is the recommended v2 format.

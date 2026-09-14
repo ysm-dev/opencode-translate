@@ -24,7 +24,8 @@ export async function setup(ctx: Plugin.Context) {
     const source = lang ? event.prompt.text : stripTrigger(event.prompt.text, options.trigger)
     if (source === undefined) return
     const userLanguage = lang ?? options.lang
-    function apply(display: string, english: string, enabled: boolean) {
+    const apply = (display: string, english: string, enabled: boolean) => {
+      const presentation = event.metadata?.displayText
       event.prompt.text = display
       // Mentions refer to offsets in the submitted text, which rewriting invalidates.
       for (const attachment of [
@@ -35,6 +36,13 @@ export async function setup(ctx: Plugin.Context) {
         delete attachment.mention
       }
       event.metadata = { ...event.metadata, [METADATA_KEY]: { lang: userLanguage, english, display, enabled } }
+      // The Web UI prefers this field over prompt.text. Preserve its original
+      // visible text (review comments may be rendered separately), then append
+      // the same translation/notice that was added to the canonical prompt.
+      if (typeof presentation === "string") {
+        const visible = lang ? presentation : (stripTrigger(presentation, options.trigger) ?? presentation)
+        event.metadata.displayText = `${visible}${display.slice(source.length)}`
+      }
     }
     try {
       const english = await translator.text(source, userLanguage, LLM_LANGUAGE)

@@ -71,6 +71,19 @@ const provider = createServer(async (req, res) => {
   )
 })
 
+// Match the Web composer's submission, including the field its renderer prefers.
+function webPrompt(text) {
+  return {
+    text,
+    metadata: {
+      displayText: text,
+      comments: [],
+      agent: "build",
+      model: { providerID: "translate-test", modelID: "main" },
+    },
+  }
+}
+
 async function stop() {
   if (!child || child.exitCode !== null) return
   const exited = once(child, "exit")
@@ -204,7 +217,7 @@ try {
   const failedID = failed.data.id
   translatorFailure = true
   const failureStart = requests.length
-  await api(`/api/session/${failedID}/prompt`, { text: "$en Hi?? Who are you?" })
+  await api(`/api/session/${failedID}/prompt`, webPrompt("$en Hi?? Who are you?"))
   await api(`/api/session/${failedID}/wait`, {})
   const failedHistory = await api(`/api/session/${failedID}/context`)
   const failedPrompt = failedHistory.data.find((message) => message.type === "user")
@@ -217,6 +230,7 @@ try {
     "must display the public tagged error's message",
   )
   assert(!failedPrompt.text.includes("$en"))
+  assert.equal(failedPrompt.metadata.displayText, failedPrompt.text, "Web UI must show the failure notice")
   const failedRequests = requests.slice(failureStart).filter(({ input }) => input.model === "main")
   assert(failedRequests.length > 0)
   assert(
@@ -234,9 +248,12 @@ try {
     model: { providerID: "translate-test", id: "main" },
   })
   const sessionID = created.data.id
-  await api(`/api/session/${sessionID}/prompt`, { text: "$en 안녕하세요" })
+  await api(`/api/session/${sessionID}/prompt`, webPrompt("$en 안녕하세요"))
   await api(`/api/session/${sessionID}/wait`, {})
   const first = await api(`/api/session/${sessionID}/context`)
+  const firstPrompt = first.data.find((message) => message.type === "user")
+  assert.equal(firstPrompt.metadata.displayText, firstPrompt.text, "Web UI must show the translated prompt")
+  assert(firstPrompt.metadata.displayText.includes("→ EN: Hello"))
   assert(
     first.data.some((message) => message.type === "user" && message.text.includes("→ EN: Hello")),
     JSON.stringify(first),
@@ -267,9 +284,12 @@ try {
   key = "rotated-sqlite-key"
   await api("/api/integration/translate-test/connect/key", { key })
   const before = requests.length
-  await api(`/api/session/${sessionID}/prompt`, { text: "다음 질문" })
+  await api(`/api/session/${sessionID}/prompt`, webPrompt("다음 질문"))
   await api(`/api/session/${sessionID}/wait`, {})
   const next = requests.slice(before)
+  const afterRestart = await api(`/api/session/${sessionID}/context`)
+  const lastPrompt = afterRestart.data.filter((message) => message.type === "user").at(-1)
+  assert.equal(lastPrompt.metadata.displayText, lastPrompt.text, "Web UI follow-up presentation must stay synchronized")
   assert(
     next.some(({ input }) => input.model === "translator"),
     "activation must survive restart",
