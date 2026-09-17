@@ -1,7 +1,23 @@
 import { expect, test } from "bun:test"
 import { resolveOptions } from "../src/constants"
-import { createTranslator } from "../src/translator"
+import { createTranslator, isFreeTierSessionRequired } from "../src/translator"
 import { host, requestContext } from "./helpers"
+
+test("free-tier session requirement is detected across Console's observed wordings", () => {
+  expect(isFreeTierSessionRequired("OpenCode's free tier can only be used in OpenCode.")).toBe(true)
+  expect(isFreeTierSessionRequired("OpenCode's free tier can only be used from within OpenCode.")).toBe(true)
+  expect(
+    isFreeTierSessionRequired(
+      "Error from provider (Console): OpenCode's free tier can only be used from within OpenCode.",
+    ),
+  ).toBe(true)
+  expect(isFreeTierSessionRequired("Invalid API key")).toBe(false)
+  expect(
+    isFreeTierSessionRequired(
+      "Free promotion has ended for opencode/muse-spark-1.3-contributor-free. You can continue using the model by subscribing to OpenCode Go",
+    ),
+  ).toBe(false)
+})
 
 test("generation delegates credentials and variants to the host on every translation", async () => {
   const h = host()
@@ -41,7 +57,7 @@ test("empty and same-language input do not call the host", async () => {
 
 const sessionOnlyError = {
   _tag: "Generate.UnavailableError",
-  message: "Error from provider (Console): OpenCode's free tier can only be used in OpenCode.",
+  message: "Error from provider (Console): OpenCode's free tier can only be used from within OpenCode.",
 }
 
 test("free-tier rejection falls back to one real session and preserves the configured model/variant", async () => {

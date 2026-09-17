@@ -135,9 +135,12 @@ to the explicit OpenCode free-tier rejection. It does not retry generic authenti
 
 ### OpenCode free-tier translation models
 
-OpenCode 2.0.3 can reject stateless generation for free-tier models with `OpenCode's free tier can only be used in
-OpenCode.` This was reproduced with `opencode/muse-spark-1.3-contributor-free`: normal session generation succeeds,
-but `ctx.generate.text()` lacks the session request metadata accepted by that provider.
+OpenCode can reject stateless generation for free-tier models because `ctx.generate.text()` omits the session
+request metadata that provider requires. Console has phrased the rejection differently across releases, including
+`OpenCode's free tier can only be used in OpenCode.` and `OpenCode's free tier can only be used from within
+OpenCode.`; the plugin matches on the stable wording rather than the exact sentence. This was reproduced with
+`opencode/muse-spark-1.3-contributor-free`: normal session generation succeeds, but `ctx.generate.text()` lacks the
+session request metadata accepted by that provider.
 
 On this specific rejection, the plugin switches to public session-aware generation using a reusable **Translation
 helper** session for the configured model and location. The helper may appear in the session list. Translation prompts

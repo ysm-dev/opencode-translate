@@ -15,6 +15,14 @@ export interface Translator {
   texts(texts: readonly string[], sourceLanguage: string, targetLanguage: string): Promise<string[]>
 }
 
+// Console has phrased this rejection multiple ways across releases (observed:
+// "...can only be used in OpenCode." and "...can only be used from within
+// OpenCode."). Match on the stable tokens rather than the exact sentence so
+// wording changes do not silently disable the session fallback below.
+export function isFreeTierSessionRequired(message: string): boolean {
+  return /free tier can only be used\b.*\bopencode/i.test(message)
+}
+
 // Both generation paths use the host's catalog, SQLite credentials and OAuth
 // refresh. Session-only providers need the host's session request metadata too.
 export function createTranslator(
@@ -79,9 +87,9 @@ export function createTranslator(
         return await ctx.generate.text({ model, prompt }, { signal: abort })
       } catch (error) {
         const message = error && typeof error === "object" && "message" in error ? String(error.message) : String(error)
-        // OpenCode 2.0.3's stateless path omits the metadata required by its free
+        // OpenCode's stateless path omits the metadata required by its free
         // tier. Use a real OpenCode session request rather than fabricating headers.
-        if (!message.includes("free tier can only be used in OpenCode")) throw error
+        if (!isFreeTierSessionRequired(message)) throw error
         abort.throwIfAborted()
         sessionRequired = true
       }

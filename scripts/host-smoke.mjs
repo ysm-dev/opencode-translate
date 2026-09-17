@@ -81,7 +81,7 @@ const provider = createServer(async (req, res) => {
   ) {
     res
       .writeHead(403, { "content-type": "application/json" })
-      .end(JSON.stringify({ error: { message: "OpenCode's free tier can only be used in OpenCode." } }))
+      .end(JSON.stringify({ error: { message: "OpenCode's free tier can only be used from within OpenCode." } }))
     return
   }
   if (askQuestion && input.model === "main") {
@@ -211,6 +211,16 @@ try {
     if (!response.ok) throw new Error(`${route}: ${response.status} ${text}`)
     return text ? JSON.parse(text) : undefined
   }
+  // OpenCode moved session.wait under /api/experimental/ after 2.0.3; CI still
+  // pins 2.0.3 for this smoke test while other environments run newer builds.
+  async function wait(sessionID) {
+    try {
+      return await api(`/api/experimental/session/${sessionID}/wait`, {})
+    } catch (error) {
+      if (!String(error).includes(": 404")) throw error
+      return await api(`/api/session/${sessionID}/wait`, {})
+    }
+  }
   async function start() {
     const reservation = createServer()
     reservation.listen(0, "127.0.0.1")
@@ -276,7 +286,7 @@ try {
   translatorFailure = true
   const failureStart = requests.length
   await api(`/api/session/${failedID}/prompt`, webPrompt("$en Hi?? Who are you?"))
-  await api(`/api/session/${failedID}/wait`, {})
+  await wait(failedID)
   const failedHistory = await api(`/api/session/${failedID}/context`)
   const failedPrompt = failedHistory.data.find((message) => message.type === "user")
   assert(
@@ -307,7 +317,7 @@ try {
   })
   const sessionID = created.data.id
   await api(`/api/session/${sessionID}/prompt`, webPrompt("$en 안녕하세요"))
-  await api(`/api/session/${sessionID}/wait`, {})
+  await wait(sessionID)
   const first = await api(`/api/session/${sessionID}/context`)
   const firstPrompt = first.data.find((message) => message.type === "user")
   assert.equal(firstPrompt.metadata.displayText, firstPrompt.text, "Web UI must show the translated prompt")
@@ -334,7 +344,7 @@ try {
   await start()
   const recoveredStart = requests.length
   await api(`/api/session/${failedID}/prompt`, { text: "Hello again" })
-  await api(`/api/session/${failedID}/wait`, {})
+  await wait(failedID)
   assert(
     !requests.slice(recoveredStart).some(({ input }) => input.model === "translator"),
     "failed activation must remain inactive after restart",
@@ -343,7 +353,7 @@ try {
   await api("/api/integration/translate-test/connect/key", { key })
   const before = requests.length
   await api(`/api/session/${sessionID}/prompt`, webPrompt("다음 질문"))
-  await api(`/api/session/${sessionID}/wait`, {})
+  await wait(sessionID)
   const next = requests.slice(before)
   const afterRestart = await api(`/api/session/${sessionID}/context`)
   const lastPrompt = afterRestart.data.filter((message) => message.type === "user").at(-1)
@@ -397,7 +407,7 @@ try {
   await api(`/api/session/${sessionID}/form/${form.id}/reply`, {
     answer: { q0: ["파란색", "빨간색"], q1: "보안 검토를 먼저 해주세요" },
   })
-  await api(`/api/session/${sessionID}/wait`, {})
+  await wait(sessionID)
   const continuation = requests
     .slice(beforeQuestion)
     .filter(({ input }) => input.model === "main" && input.messages.some((message) => message.role === "tool"))
