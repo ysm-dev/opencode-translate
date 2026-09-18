@@ -137,20 +137,27 @@ errors through another path.
 
 ### OpenCode session-metadata-only translation models
 
-OpenCode can reject stateless generation because `ctx.generate.text()` omits the session request metadata some
-providers require. Console has phrased this rejection differently by tier and release: the free Zen tier says
-`OpenCode's free tier can only be used in OpenCode.` (also seen as `...from within OpenCode.`), while the paid Go
-tier says `Request is missing x-opencode-session and cannot be routed efficiently.` The plugin matches on stable
-signals -- the free-tier phrase, or the literal `x-opencode-session` header name -- rather than either exact
-sentence. This was reproduced with `opencode/muse-spark-1.3-contributor-free` (Zen) and `opencode-go/gpt-5.6-luna`
-(Go): normal session generation succeeds on both, but `ctx.generate.text()` lacks the session request metadata
-either provider accepts.
+`ctx.generate.text()` omits the session request metadata every Console tier requires (Zen `opencode` and Go
+`opencode-go`, and presumably any tier Console adds later). The plugin recognizes this **upfront, from the
+configured provider ID** -- `isSessionOnlyProvider()` -- and routes those providers straight to session-aware
+generation without ever attempting the stateless call. This is deliberate: Console has phrased the rejection
+differently by tier and release (the free Zen tier: `OpenCode's free tier can only be used in/from within
+OpenCode.`; the paid Go tier: `Request is missing x-opencode-session and cannot be routed efficiently.`), and a
+provider-ID check that's known before the request is sent can't be broken by wording changes on Console's side --
+unlike matching the rejection message, which has already needed two updates.
 
-On this specific rejection, the plugin switches to public session-aware generation using a reusable **Translation
-helper** session for the configured model and location. The helper may appear in the session list. Translation prompts
-are transient: they do not append messages to either the helper or your chat, and each generation receives only the
+Matching the rejection message (`isSessionMetadataRequired()`) still exists as a safety net for providers
+`isSessionOnlyProvider()` doesn't recognize: on that specific rejection, mid-translation, the plugin switches the
+same way. Both paths converge on public session-aware generation using a reusable **Translation helper** session
+for the configured model and location. The helper may appear in the session list. Translation prompts are
+transient: they do not append messages to either the helper or your chat, and each generation receives only the
 current translation prompt plus OpenCode's system instructions and tool definitions. The helper ID survives
 plugin/server restarts. Other authentication or model-selection failures still report their original error.
+
+This was verified with `opencode/muse-spark-1.3-contributor-free` (Zen) and `opencode-go/gpt-5.6-luna` (Go): normal
+session generation succeeds on both, `ctx.generate.text()` lacks the session request metadata either provider
+accepts, and with the provider ID recognized upfront, the plugin never attempts the stateless call in the first
+place for either one.
 
 Tool definitions are deliberately kept in the helper session's requests. Console's free tier reads a request with an
 emptied tool list as non-agent traffic and rejects it with the same `free tier can only be used within OpenCode`

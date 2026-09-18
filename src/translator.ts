@@ -15,14 +15,24 @@ export interface Translator {
   texts(texts: readonly string[], sourceLanguage: string, targetLanguage: string): Promise<string[]>
 }
 
-// Console rejects stateless generation whenever it can't see real OpenCode
-// session metadata, but has worded the rejection differently by tier and
-// release: the free Zen tier ("...free tier can only be used in/from within
-// OpenCode.") and the paid Go tier ("Request is missing x-opencode-session
-// and cannot be routed efficiently. Please see .../docs/go/#where-can-i-use-it.").
-// Match on stable signals -- the literal header name, or the free-tier phrase
-// -- rather than either exact sentence, so wording drift on either tier does
-// not silently disable the session fallback below.
+// Every Console tier (Zen "opencode", Go "opencode-go", and whatever tier
+// comes next) requires real OpenCode session metadata that ctx.generate.text()
+// never sends. Known upfront from the configured provider ID -- not observed
+// from a failure -- so these providers skip the stateless attempt entirely
+// and go straight to the session path below. This is what actually makes the
+// fallback robust: it does not depend on Console's error wording at all.
+export function isSessionOnlyProvider(providerID: string): boolean {
+  return providerID === "opencode" || providerID.startsWith("opencode-")
+}
+
+// Safety net for session-metadata requirements on providers isSessionOnlyProvider
+// doesn't (yet) recognize. Console has worded this rejection differently by tier
+// and release: the free Zen tier ("...free tier can only be used in/from within
+// OpenCode.") and the paid Go tier ("Request is missing x-opencode-session and
+// cannot be routed efficiently. Please see .../docs/go/#where-can-i-use-it.").
+// Match on stable signals -- the literal header name, or the free-tier phrase --
+// rather than either exact sentence, so wording drift keeps landing here even
+// when it silently changes again.
 export function isSessionMetadataRequired(message: string): boolean {
   return /free tier can only be used\b.*\bopencode/i.test(message) || /x-opencode-session/i.test(message)
 }
@@ -36,7 +46,7 @@ export function createTranslator(
 ): Translator {
   const { providerID, modelID } = parseTranslatorModel(options.model)
   const model = { providerID, id: modelID, ...(options.variant ? { variant: options.variant } : {}) }
-  let sessionRequired = false
+  let sessionRequired = isSessionOnlyProvider(providerID)
   let helper: Promise<string> | undefined
 
   function helperSession() {
@@ -95,8 +105,8 @@ export function createTranslator(
         return await ctx.generate.text({ model, prompt }, { signal: abort })
       } catch (error) {
         const message = error && typeof error === "object" && "message" in error ? String(error.message) : String(error)
-        // OpenCode's stateless path omits the session metadata some providers
-        // require. Use a real OpenCode session request rather than fabricating headers.
+        // Reached only for providers isSessionOnlyProvider didn't flag upfront.
+        // Use a real OpenCode session request rather than fabricating headers.
         if (!isSessionMetadataRequired(message)) throw error
         abort.throwIfAborted()
         sessionRequired = true

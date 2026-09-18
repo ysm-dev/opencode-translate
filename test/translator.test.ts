@@ -1,7 +1,32 @@
 import { expect, test } from "bun:test"
 import { resolveOptions } from "../src/constants"
-import { createTranslator, isSessionMetadataRequired } from "../src/translator"
+import { createTranslator, isSessionMetadataRequired, isSessionOnlyProvider } from "../src/translator"
 import { host, requestContext } from "./helpers"
+
+test("session-only providers are recognized by ID alone", () => {
+  expect(isSessionOnlyProvider("opencode")).toBe(true)
+  expect(isSessionOnlyProvider("opencode-go")).toBe(true)
+  expect(isSessionOnlyProvider("opencode-anything-future")).toBe(true)
+  expect(isSessionOnlyProvider("openai")).toBe(false)
+  expect(isSessionOnlyProvider("anthropic")).toBe(false)
+  // Must not match unrelated providers that merely contain the substring.
+  expect(isSessionOnlyProvider("my-opencode-fork")).toBe(false)
+})
+
+test("session-only providers skip the stateless attempt entirely, regardless of wording", async () => {
+  const h = host({ model: "opencode/muse-spark-1.3-contributor-free" })
+  h.generate(async () => {
+    throw new Error("stateless generate.text must never be called for a session-only provider")
+  })
+  h.sessionGenerate(async () => "안녕하세요")
+  const translator = createTranslator(h.ctx, resolveOptions(h.ctx.options), new AbortController().signal)
+  expect(await translator.text("Hello", "English", "Korean")).toBe("안녕하세요")
+  expect(h.requests).toHaveLength(0)
+  expect(h.createdSessions).toHaveLength(1)
+  expect(h.createdSessions[0]).toMatchObject({
+    model: { providerID: "opencode", id: "muse-spark-1.3-contributor-free" },
+  })
+})
 
 test("session metadata requirement is detected across Console's observed wordings", () => {
   // Free Zen tier.
