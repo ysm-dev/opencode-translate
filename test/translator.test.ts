@@ -85,7 +85,9 @@ test("free-tier rejection falls back to one real session and preserves the confi
   await h.emit("session.generate", helperEvent)
   expect(helperEvent.messages).toEqual([current])
   expect(helperEvent.system).toEqual([{ type: "text", text: "OpenCode identity" }])
-  expect(Object.keys(helperEvent.tools)).toEqual([])
+  // Tool definitions stay intact: Console's free tier rejects "generate" requests
+  // with an emptied tool list, and generate() never executes tool calls anyway.
+  expect(helperEvent.tools).toEqual({ read: {} })
   const mainEvent = { ...requestContext([old, current], "ses_main"), tools: { read: {} } }
   await h.emit("session.generate", mainEvent)
   expect(mainEvent.messages).toEqual([old, current])

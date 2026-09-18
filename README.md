@@ -144,9 +144,16 @@ session request metadata accepted by that provider.
 
 On this specific rejection, the plugin switches to public session-aware generation using a reusable **Translation
 helper** session for the configured model and location. The helper may appear in the session list. Translation prompts
-are transient: they do not append messages to either the helper or your chat, they cannot execute tools, and each
-generation receives only the current translation prompt plus OpenCode's system instructions. The helper ID survives
+are transient: they do not append messages to either the helper or your chat, and each generation receives only the
+current translation prompt plus OpenCode's system instructions and tool definitions. The helper ID survives
 plugin/server restarts. Other authentication or model-selection failures still report their original error.
+
+Tool definitions are deliberately kept in the helper session's requests. Console's free tier reads a request with an
+emptied tool list as non-agent traffic and rejects it with the same `free tier can only be used within OpenCode`
+error, even when the request otherwise carries correct session headers -- confirmed by comparing requests with and
+without tool definitions against the real `opencode.ai/zen` backend. This is harmless for translation: the plugin's
+session-generate call never runs a tool loop, so the model cannot actually execute anything even though it can see
+the schemas.
 
 ## Inline reply support
 
