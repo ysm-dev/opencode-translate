@@ -1,19 +1,26 @@
 import { expect, test } from "bun:test"
 import { resolveOptions } from "../src/constants"
-import { createTranslator, isFreeTierSessionRequired } from "../src/translator"
+import { createTranslator, isSessionMetadataRequired } from "../src/translator"
 import { host, requestContext } from "./helpers"
 
-test("free-tier session requirement is detected across Console's observed wordings", () => {
-  expect(isFreeTierSessionRequired("OpenCode's free tier can only be used in OpenCode.")).toBe(true)
-  expect(isFreeTierSessionRequired("OpenCode's free tier can only be used from within OpenCode.")).toBe(true)
+test("session metadata requirement is detected across Console's observed wordings", () => {
+  // Free Zen tier.
+  expect(isSessionMetadataRequired("OpenCode's free tier can only be used in OpenCode.")).toBe(true)
+  expect(isSessionMetadataRequired("OpenCode's free tier can only be used from within OpenCode.")).toBe(true)
   expect(
-    isFreeTierSessionRequired(
+    isSessionMetadataRequired(
       "Error from provider (Console): OpenCode's free tier can only be used from within OpenCode.",
     ),
   ).toBe(true)
-  expect(isFreeTierSessionRequired("Invalid API key")).toBe(false)
+  // Paid Go tier: same missing-session-metadata cause, unrelated wording.
   expect(
-    isFreeTierSessionRequired(
+    isSessionMetadataRequired(
+      "Error from provider (Console Go): Request is missing x-opencode-session and cannot be routed efficiently. Please see https://opencode.ai/docs/go/#where-can-i-use-it.",
+    ),
+  ).toBe(true)
+  expect(isSessionMetadataRequired("Invalid API key")).toBe(false)
+  expect(
+    isSessionMetadataRequired(
       "Free promotion has ended for opencode/muse-spark-1.3-contributor-free. You can continue using the model by subscribing to OpenCode Go",
     ),
   ).toBe(false)
@@ -92,6 +99,21 @@ test("free-tier rejection falls back to one real session and preserves the confi
   await h.emit("session.generate", mainEvent)
   expect(mainEvent.messages).toEqual([old, current])
   expect(mainEvent.tools).toEqual({ read: {} })
+})
+
+test("Go-tier rejection also falls back to a real session, despite unrelated wording", async () => {
+  const h = host()
+  h.generate(async () =>
+    Promise.reject({
+      _tag: "Generate.UnavailableError",
+      message:
+        "Error from provider (Console Go): Request is missing x-opencode-session and cannot be routed efficiently. Please see https://opencode.ai/docs/go/#where-can-i-use-it.",
+    }),
+  )
+  h.sessionGenerate(async () => "안녕하세요")
+  const translator = createTranslator(h.ctx, resolveOptions(h.ctx.options), new AbortController().signal)
+  expect(await translator.text("Hello", "English", "Korean")).toBe("안녕하세요")
+  expect(h.createdSessions).toHaveLength(1)
 })
 
 test("concurrent fallback calls share a helper and reload reuses its persisted ID", async () => {

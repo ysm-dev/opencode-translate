@@ -128,19 +128,23 @@ Verified on OpenCode 2.0.3 using the host's saved credentials:
 | --- | --- |
 | `openai/gpt-5.6-luna` | Inbound, outbound, and follow-up translation passed through stateless generation with ChatGPT OAuth. |
 | `opencode/muse-spark-1.3-contributor-free` | Passed through the session-aware fallback described below. |
+| `opencode-go/gpt-5.6-luna` | Passed through the same session-aware fallback (Go's `x-opencode-session` rejection, not Zen's free-tier one). |
 | `anthropic/claude-sonnet-5` with `@henadev/opencode-anthropic-auth@0.2.0` | Works as the main chat model, but not as the translator in this release: its auth plugin depends on session HTTP hooks that stateless generation skips. |
 
 Anthropic translation succeeded in a session-aware experiment, but the automatic fallback in this release is limited
-to the explicit OpenCode free-tier rejection. It does not retry generic authentication errors through another path.
+to the explicit OpenCode session-metadata rejections described below. It does not retry generic authentication
+errors through another path.
 
-### OpenCode free-tier translation models
+### OpenCode session-metadata-only translation models
 
-OpenCode can reject stateless generation for free-tier models because `ctx.generate.text()` omits the session
-request metadata that provider requires. Console has phrased the rejection differently across releases, including
-`OpenCode's free tier can only be used in OpenCode.` and `OpenCode's free tier can only be used from within
-OpenCode.`; the plugin matches on the stable wording rather than the exact sentence. This was reproduced with
-`opencode/muse-spark-1.3-contributor-free`: normal session generation succeeds, but `ctx.generate.text()` lacks the
-session request metadata accepted by that provider.
+OpenCode can reject stateless generation because `ctx.generate.text()` omits the session request metadata some
+providers require. Console has phrased this rejection differently by tier and release: the free Zen tier says
+`OpenCode's free tier can only be used in OpenCode.` (also seen as `...from within OpenCode.`), while the paid Go
+tier says `Request is missing x-opencode-session and cannot be routed efficiently.` The plugin matches on stable
+signals -- the free-tier phrase, or the literal `x-opencode-session` header name -- rather than either exact
+sentence. This was reproduced with `opencode/muse-spark-1.3-contributor-free` (Zen) and `opencode-go/gpt-5.6-luna`
+(Go): normal session generation succeeds on both, but `ctx.generate.text()` lacks the session request metadata
+either provider accepts.
 
 On this specific rejection, the plugin switches to public session-aware generation using a reusable **Translation
 helper** session for the configured model and location. The helper may appear in the session list. Translation prompts

@@ -15,12 +15,16 @@ export interface Translator {
   texts(texts: readonly string[], sourceLanguage: string, targetLanguage: string): Promise<string[]>
 }
 
-// Console has phrased this rejection multiple ways across releases (observed:
-// "...can only be used in OpenCode." and "...can only be used from within
-// OpenCode."). Match on the stable tokens rather than the exact sentence so
-// wording changes do not silently disable the session fallback below.
-export function isFreeTierSessionRequired(message: string): boolean {
-  return /free tier can only be used\b.*\bopencode/i.test(message)
+// Console rejects stateless generation whenever it can't see real OpenCode
+// session metadata, but has worded the rejection differently by tier and
+// release: the free Zen tier ("...free tier can only be used in/from within
+// OpenCode.") and the paid Go tier ("Request is missing x-opencode-session
+// and cannot be routed efficiently. Please see .../docs/go/#where-can-i-use-it.").
+// Match on stable signals -- the literal header name, or the free-tier phrase
+// -- rather than either exact sentence, so wording drift on either tier does
+// not silently disable the session fallback below.
+export function isSessionMetadataRequired(message: string): boolean {
+  return /free tier can only be used\b.*\bopencode/i.test(message) || /x-opencode-session/i.test(message)
 }
 
 // Both generation paths use the host's catalog, SQLite credentials and OAuth
@@ -91,9 +95,9 @@ export function createTranslator(
         return await ctx.generate.text({ model, prompt }, { signal: abort })
       } catch (error) {
         const message = error && typeof error === "object" && "message" in error ? String(error.message) : String(error)
-        // OpenCode's stateless path omits the metadata required by its free
-        // tier. Use a real OpenCode session request rather than fabricating headers.
-        if (!isFreeTierSessionRequired(message)) throw error
+        // OpenCode's stateless path omits the session metadata some providers
+        // require. Use a real OpenCode session request rather than fabricating headers.
+        if (!isSessionMetadataRequired(message)) throw error
         abort.throwIfAborted()
         sessionRequired = true
       }
