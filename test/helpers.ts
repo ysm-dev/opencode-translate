@@ -53,6 +53,7 @@ export function host(options: Record<string, unknown> = {}) {
       context: async ({ sessionID }: { sessionID: string }) => history[sessionID] ?? [],
     },
     tool: { hook: hook("tool") },
+    aisdk: { hook: hook("aisdk") },
     storage: {
       get: async (key: string) => values.get(key),
       set: async (key: string, value: unknown) => {

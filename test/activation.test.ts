@@ -16,6 +16,9 @@ describe("v2 lifecycle and admission", () => {
       "session.generate",
       "tool.execute.before",
       "tool.execute.after",
+      "session.model.request",
+      "session.http.request",
+      "aisdk.language",
       "session.http.response",
     ])
     expect(h.requests).toHaveLength(0)

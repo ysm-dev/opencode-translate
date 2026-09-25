@@ -56,11 +56,13 @@ try {
           options: { model: "openai/gpt-5.4-mini", lang: "Korean" },
           session: { hook: hook("session") },
           tool: { hook: hook("tool") },
+          aisdk: { hook: hook("aisdk") },
           storage: {},
           generate: {},
         })
         assert(hooks.includes("session.prompt"))
         assert(hooks.includes("session.http.response"))
+        assert(hooks.includes("aisdk.language"))
         assert(hooks.includes("session.compaction"))
         assert(hooks.includes("tool.execute.after"))
         assert.equal(typeof cleanup, "function")

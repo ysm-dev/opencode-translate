@@ -67,7 +67,6 @@ jobs:
           fi
 
       - name: Install
-        if: steps.check.outputs.already_published == 'false'
         run: bun install --frozen-lockfile
 
       - name: Biome check
@@ -103,6 +102,10 @@ jobs:
           OPENCODE_TRANSLATE_REQUIRE_SESSION: "1"
         run: npm exec --yes --package=@opencode/cli@2.0.3 -- bun run test:host
 
+      - name: Test OpenAI transport and multi-auth compatibility on OpenCode 2.0.16
+        if: steps.check.outputs.already_published == 'false'
+        run: npm exec --yes --package=@opencode/cli@2.0.16 -- bun run test:openai
+
       # Uses npm OIDC trusted publishing (no NPM_TOKEN).
       # Requires npm >= 11.5.1. Node 24 ships with npm 11.x; if the default
       # npm is too old we fall through to npx with a pinned version.
@@ -128,6 +131,12 @@ jobs:
           # Refresh metadata cached by the pre-publish version lookup.
           npm_config_prefer_online: "true"
         run: npm exec --yes --package=@opencode/cli@2.0.3 -- node scripts/host-smoke.mjs
+
+      - name: Verify npm release with OpenAI and multi-auth compatibility
+        env:
+          OPENCODE_TRANSLATE_PACKAGE: ${{ steps.pkg.outputs.name }}@${{ steps.pkg.outputs.version }}
+          npm_config_prefer_online: "true"
+        run: npm exec --yes --package=@opencode/cli@2.0.16 -- bun scripts/openai-smoke.mjs
 
       # Tag/Release run whenever the git tag is missing, even if publish was
       # skipped (e.g. the version was published out-of-band like the initial

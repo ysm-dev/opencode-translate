@@ -1,6 +1,6 @@
 {
   "name": "opencode-translate",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "description": "OpenCode plugin that lets the user chat in a configured language while the main chat loop only sees English.",
   "type": "module",
   "main": "dist/index.js",
@@ -44,6 +44,7 @@
     "test:coverage": "bun test --coverage",
     "test:package": "node scripts/package-smoke.mjs",
     "test:host": "bun run build && node scripts/host-smoke.mjs",
+    "test:openai": "bun run build && bun scripts/openai-smoke.mjs",
     "prepare": "bun run build",
     "prepack": "bun run build"
   },
@@ -51,6 +52,7 @@
     "@opencode/plugin": "2.0.3"
   },
   "devDependencies": {
+    "@ai-sdk/openai": "3.0.118",
     "@biomejs/biome": "^2.4.12",
     "@opencode/ai": "2.0.3",
     "@types/node": "^25.6.0",

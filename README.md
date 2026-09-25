@@ -22,7 +22,7 @@ This plugin lets you write in your language while the model works in English —
 
 ## Install
 
-Version 2 of this plugin uses OpenCode's **v2 public plugin API**. The verified release is OpenCode **2.0.3**.
+Version 2 of this plugin uses OpenCode's **v2 public plugin API**. Verified releases are OpenCode **2.0.3** and **2.0.16**.
 For OpenCode v1, use `opencode-translate@1`.
 Start a fresh v2 session when upgrading: v1 activation metadata and historical bilingual trailers are not migrated.
 
@@ -182,10 +182,19 @@ Unknown endpoints, non-SSE responses, and binary protocols such as Bedrock Conve
 log message. They still support inbound/question translation when the translation model is available through OpenCode.
 Reasoning, tool calls, images, and other non-text outputs are not translated.
 
-**Transport:** OpenCode routes sessions through HTTP when HTTP hooks are registered. Loading this plugin therefore
-disables the session WebSocket fast path in its location, including sessions that have not activated `$en`.
+**Transport:** Replies are translated in the HTTP response stream. OpenCode 2.0.3 routed sessions through HTTP by
+itself whenever HTTP hooks were registered; later releases stream WebSocket-default providers (OpenAI, including
+Codex, and xAI) over a session WebSocket regardless, and those replies never reach HTTP hooks. The plugin therefore
+sets `transport: "http"` on every provider configured for WebSocket. Loading it disables the session WebSocket fast
+path in its location, including sessions that have not activated `$en`.
 Translations add latency at text-completion boundaries and use additional model requests. Their usage is separate from
 the primary model's reported token counts.
+
+**AI SDK providers:** Models served through an AI SDK client are translated from the model's text stream parts
+instead, through `aisdk.hook("language")`. This covers provider plugins that send requests with their own `fetch`,
+which never reaches OpenCode's HTTP hooks, such as `oc-codex-multi-auth` 6.24.0 for `openai`, in either plugin
+order. To identify the session, a `model.request` hook tags primary requests with an internal
+`x-opencode-translate-session` header, which is stripped from AI SDK calls and HTTP requests before they are sent.
 
 ## Development and verification
 
@@ -197,6 +206,10 @@ bun run knip
 bun test
 bun run build
 bun run test:package
+
+# Requires OpenCode 2.0.16: native OpenAI plus multi-auth-style AI SDK providers,
+# both plugin orders, duplicate prevention, and English-only follow-up context.
+OPENCODE_BINARY=/path/to/opencode bun run test:openai
 
 # Requires Node 24 and an OpenCode v2 binary; uses an isolated server and fake provider.
 OPENCODE_BINARY=/path/to/opencode bun run test:host
@@ -218,6 +231,8 @@ It also executes the real Question tool, checks translated form fields, submits 
 answer, and verifies that the next model request contains the original English questions and English answers.
 CI covers both configuration formats and both generation paths. The publish workflow tests the candidate before
 publishing, then installs the exact version from npm in OpenCode before creating its GitHub release.
+The OpenAI compatibility smoke runs before and after publishing on 2.0.16. Its fake auth plugin reproduces
+`oc-codex-multi-auth` 6.24.0's SDK/fetch/model wrapping without live credentials or external model requests.
 
 The old `opencode2 v0.0.0-dev-18322` binary does not pass this migration's host smoke test. Use the verified 2.0.3 release
 rather than assuming that any binary named `opencode2` exposes the current plugin API.

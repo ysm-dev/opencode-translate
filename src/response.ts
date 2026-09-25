@@ -10,6 +10,32 @@ export interface ResponseTranslation {
   warn(message: string): void
 }
 
+// Translates one completed English text segment and returns its display text:
+// the English followed by the trailer, or the English alone when nothing may be added.
+export async function translateSegment(english: string, options: ResponseTranslation, signal: AbortSignal) {
+  if (!english.trim()) return english
+  signal.throwIfAborted()
+  let display: string
+  try {
+    const translated = await options.translate(english, signal)
+    if (!translated.trim()) throw new Error("Translator returned empty text")
+    display = composeTranslatedAssistantText(english, getDisplayLanguageLabel(options.lang), translated)
+  } catch (error) {
+    signal.throwIfAborted()
+    options.warn(`Outbound translation failed: ${String(error)}`)
+    display = composeTranslationFailureText(english)
+  }
+  // Commit provenance before emitting any trailer. If storage fails, do not
+  // introduce text that a future model request could not remove.
+  try {
+    await options.remember(display, english)
+  } catch (error) {
+    options.warn(`Cannot save translation history: ${String(error)}`)
+    return english
+  }
+  return display
+}
+
 function protocolFor(request: Request): Protocol | undefined {
   const path = new URL(request.url).pathname
   if (/\/responses\/?$/.test(path)) return "responses"
@@ -34,29 +60,7 @@ export function translateResponse(request: Request, response: Response, options:
   }
   signal.addEventListener("abort", abort, { once: true })
   if (signal.aborted) abort()
-  const adapter = createAdapter(protocol, async (english) => {
-    if (!english.trim()) return english
-    signal.throwIfAborted()
-    let display: string
-    try {
-      const translated = await options.translate(english, signal)
-      if (!translated.trim()) throw new Error("Translator returned empty text")
-      display = composeTranslatedAssistantText(english, getDisplayLanguageLabel(options.lang), translated)
-    } catch (error) {
-      signal.throwIfAborted()
-      options.warn(`Outbound translation failed: ${String(error)}`)
-      display = composeTranslationFailureText(english)
-    }
-    // Commit provenance before emitting any trailer. If storage fails, do not
-    // introduce text that a future model request could not remove.
-    try {
-      await options.remember(display, english)
-    } catch (error) {
-      options.warn(`Cannot save translation history: ${String(error)}`)
-      return english
-    }
-    return display
-  })
+  const adapter = createAdapter(protocol, (english) => translateSegment(english, options, signal))
   async function* frames() {
     const decoder = new TextDecoder()
     let buffer = ""

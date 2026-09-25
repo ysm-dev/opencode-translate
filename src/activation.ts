@@ -1,11 +1,13 @@
 import type { Plugin } from "@opencode/plugin"
 import type { SessionRequest } from "@opencode/plugin/promise/session"
+import { registerModelTranslation } from "./aisdk"
 import { LLM_LANGUAGE, PLUGIN_NAME, resolveOptions } from "./constants"
 import { isQuestionArgs } from "./question-tool"
 import { registerQuestionHooks } from "./questions"
-import { translateResponse } from "./response"
+import { type ResponseTranslation, translateResponse } from "./response"
 import { createState, METADATA_KEY, readMetadata } from "./state"
 import { createTranslator } from "./translator"
+import { requireHttpTransport } from "./transport"
 
 export async function setup(ctx: Plugin.Context) {
   if (process.env.OPENCODE_TRANSLATE_DISABLE === "1") return
@@ -104,17 +106,23 @@ export async function setup(ctx: Plugin.Context) {
     await ctx.session.hook("generate", context)
   }
   const clearQuestions = await registerQuestionHooks(ctx, state, translator)
-  await ctx.session.hook("http.response", async (event) => {
-    if (event.kind !== "primary" || !event.response.ok) return
-    const lang = await state.language(event.sessionID)
+  await requireHttpTransport(ctx)
+  async function outbound(sessionID: string): Promise<ResponseTranslation | undefined> {
+    const lang = await state.language(sessionID)
     if (!lang || lang === LLM_LANGUAGE) return
-    event.response = translateResponse(event.request, event.response, {
+    return {
       lang,
       signal: controller.signal,
       translate: (text, signal) => translator.text(text, LLM_LANGUAGE, lang, signal),
-      remember: (display, english) => state.remember(event.sessionID, display, english),
+      remember: (display, english) => state.remember(sessionID, display, english),
       warn: (message) => console.error(`[${PLUGIN_NAME}] ${message}`),
-    })
+    }
+  }
+  const streaming = await registerModelTranslation(ctx, outbound)
+  await ctx.session.hook("http.response", async (event) => {
+    if (event.kind !== "primary" || !event.response.ok || streaming.has(event.sessionID)) return
+    const translation = await outbound(event.sessionID)
+    if (translation) event.response = translateResponse(event.request, event.response, translation)
   })
   return () => {
     controller.abort()

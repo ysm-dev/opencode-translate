@@ -48,6 +48,9 @@ jobs:
       - name: Test published package
         run: bun run test:package
 
+      - name: Test OpenAI transport and multi-auth compatibility
+        run: npm exec --yes --package=@opencode/cli@2.0.16 -- bun run test:openai
+
   host:
     name: OpenCode host (${{ matrix.config }}, ${{ matrix.generation }})
     needs: check
