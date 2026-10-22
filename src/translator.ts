@@ -9,6 +9,7 @@ import {
   parseBatchSegments,
   unwrapEchoedTextEnvelope,
 } from "./prompts"
+import { missingVerbatim } from "./verbatim"
 
 export interface Translator {
   text(text: string, sourceLanguage: string, targetLanguage: string, signal?: AbortSignal): Promise<string>
@@ -138,24 +139,42 @@ export function createTranslator(
       abort.removeEventListener("abort", stop)
     }
   }
+  // Dropping an email address, path, or ID is never a translation choice. Retry once,
+  // then fail so callers show their visible fallback instead of an incomplete translation.
+  async function complete<T>(attempt: () => Promise<{ result: T; missing: string[] }>) {
+    let outcome = await attempt()
+    if (outcome.missing.length) {
+      if (options.verbose) console.info(`[${PLUGIN_NAME}] translation omitted ${outcome.missing.join(", ")}; retrying`)
+      outcome = await attempt()
+    }
+    const { result, missing } = outcome
+    if (missing.length)
+      throw new Error(`Translator omitted ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ", …" : ""}`)
+    return result
+  }
   return {
     async text(text, sourceLanguage, targetLanguage, requestSignal) {
       if (!text || sourceLanguage === targetLanguage) return text
       const input = { text, sourceLanguage, targetLanguage }
-      const translated = unwrapEchoedTextEnvelope(
-        await generate(`${buildSystemPrompt(input)}\n\n${buildUserPrompt(input)}`, requestSignal),
-      )
-      if (!translated.trim()) throw new Error("Translator returned empty text")
-      return translated
+      return complete(async () => {
+        const translated = unwrapEchoedTextEnvelope(
+          await generate(`${buildSystemPrompt(input)}\n\n${buildUserPrompt(input)}`, requestSignal),
+        )
+        if (!translated.trim()) throw new Error("Translator returned empty text")
+        return { result: translated, missing: missingVerbatim(text, translated) }
+      })
     },
     async texts(texts, sourceLanguage, targetLanguage) {
       if (!texts.length || sourceLanguage === targetLanguage) return [...texts]
       const input = { texts, sourceLanguage, targetLanguage }
-      const result = await generate(`${buildBatchSystemPrompt(input)}\n\n${buildBatchUserPrompt(input)}`)
-      return parseBatchSegments(result, texts.length).map((text, index) => {
-        const translated = unwrapEchoedTextEnvelope(text)
-        if (texts[index].trim() && !translated.trim()) throw new Error("Translator returned an empty segment")
-        return translated
+      return complete(async () => {
+        const output = await generate(`${buildBatchSystemPrompt(input)}\n\n${buildBatchUserPrompt(input)}`)
+        const result = parseBatchSegments(output, texts.length).map((text, index) => {
+          const translated = unwrapEchoedTextEnvelope(text)
+          if (texts[index].trim() && !translated.trim()) throw new Error("Translator returned an empty segment")
+          return translated
+        })
+        return { result, missing: result.flatMap((translated, index) => missingVerbatim(texts[index], translated)) }
       })
     },
   }

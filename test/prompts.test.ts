@@ -18,6 +18,17 @@ describe("translation prompts", () => {
     )
   })
 
+  test("prompts require the complete input, copying parts that need no translation", () => {
+    for (const prompt of [
+      buildSystemPrompt({ sourceLanguage: "Korean", targetLanguage: "English", text: "안녕" }),
+      buildBatchSystemPrompt({ sourceLanguage: "English", targetLanguage: "Korean", texts: ["Hello"] }),
+    ]) {
+      expect(prompt).toContain("in the original order and layout")
+      expect(prompt).toContain("email addresses, phone numbers, numbers) exactly as written")
+      expect(prompt).toContain("Never omit, summarize, or merge content")
+    }
+  })
+
   test("buildUserPrompt wraps text in a translation envelope", () => {
     expect(buildUserPrompt({ sourceLanguage: "Korean", targetLanguage: "English", text: "안녕" })).toBe(
       "<text>\n안녕\n</text>",

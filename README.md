@@ -114,6 +114,18 @@ Find `opencode-translate`, check `source.version` and `state.status`, and inspec
 uses a remote or explicitly selected server, pass `--server` with that same server URL. A client version or a globally
 installed npm version alone does not establish what the session's server has loaded.
 
+### If part of a message is missing from the translation
+
+The main model sees only the `→ EN:` text, never your original. Up to 2.0.9, the translation prompt asked for "only the
+translated text" without requiring all of it, so the translator sometimes dropped or moved parts with nothing to
+translate, such as a line holding only an email address and phone number. The prompt now requires the entire input in
+its original order and layout, with such parts copied unchanged.
+
+The plugin also checks each translation for dropped email addresses, URLs, file paths, numbers with 9 or more digits,
+and inline code containing symbols or digits, such as `` `/reset` ``. If one is missing, it retries once. If the retry
+drops it too, your message shows `Translation failed:` and the model receives your original text; a reply keeps its
+English text with the translation-unavailable notice; a question form stays in English.
+
 ## Authentication
 
 Connect the translation model's provider in **OpenCode itself**. Translation uses the public `ctx.generate.text()` API,

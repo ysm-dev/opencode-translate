@@ -126,7 +126,10 @@ describe("v2 lifecycle and admission", () => {
   })
   test("Web review comments stay in their cards rather than being duplicated in the original visible text", async () => {
     const h = host()
-    h.generate(async () => "Review the code and fix the typo.")
+    h.generate(
+      async () =>
+        "Please review this.\nThe user made the following comment regarding line 3 of src/index.ts: Fix the typo.",
+    )
     await setup(h.ctx)
     const note = "The user made the following comment regarding line 3 of src/index.ts: 오타 수정"
     const input = prompt(`$en 검토해주세요\n${note}`)
@@ -134,7 +137,7 @@ describe("v2 lifecycle and admission", () => {
     input.metadata = { displayText: "$en 검토해주세요", comments }
     await h.emit("session.prompt", input)
     expect(input.prompt.text).toContain(note)
-    expect(input.metadata.displayText).toStartWith("검토해주세요\n\n→ EN: Review the code and fix the typo.")
+    expect(input.metadata.displayText).toStartWith("검토해주세요\n\n→ EN: Please review this.\n")
     expect(input.metadata.displayText).not.toContain(note)
     expect(input.metadata.comments).toEqual(comments)
   })
@@ -175,6 +178,39 @@ describe("v2 lifecycle and admission", () => {
     await h.emit("session.prompt", retry)
     expect(retry.prompt.text).toContain("Translation enabled:")
     expect(h.values.get("sessions/ses_1")).toBe("Korean")
+  })
+  test("a dropped identifier line is retried, and a repeated omission sends the original text", async () => {
+    const source = "colus001@me.com / +821092836686\n\n이거 둘다 테스트핸들로 등록해줘"
+    const dropped = "Please register both of these as test handles."
+    const kept = `colus001@me.com / +821092836686\n\n${dropped}`
+    const h = host()
+    const replies = [dropped, kept]
+    h.generate(async () => replies.shift() ?? dropped)
+    await setup(h.ctx)
+    const input = prompt(`$en ${source}`)
+    await h.emit("session.prompt", input)
+    expect(input.prompt.text).toStartWith(`${source}\n\n→ EN: ${kept}\n\n`)
+    const context = requestContext([
+      { role: "user", content: [{ type: "text", text: input.prompt.text }], metadata: input.metadata },
+    ])
+    await h.emit("session.context", context)
+    expect(context.messages).toMatchObject([{ content: [{ text: kept }] }])
+    const next = prompt(source)
+    const log = spyOn(console, "error").mockImplementation(() => {})
+    try {
+      await h.emit("session.prompt", next)
+    } finally {
+      log.mockRestore()
+    }
+    expect(next.prompt.text).toBe(
+      `${source}\n\n⚠️ Translation failed: Translator omitted colus001@me.com, +821092836686. Original text was sent to the model.`,
+    )
+    const fallback = requestContext([
+      { role: "user", content: [{ type: "text", text: next.prompt.text }], metadata: next.metadata },
+    ])
+    await h.emit("session.context", fallback)
+    expect(fallback.messages).toMatchObject([{ content: [{ text: source }] }])
+    expect(h.requests).toHaveLength(4)
   })
   test("rewriting removes stale file, agent, and skill mention offsets", async () => {
     const h = host()

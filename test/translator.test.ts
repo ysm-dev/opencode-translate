@@ -69,6 +69,41 @@ test("batch translation keeps segment boundaries and rejects incomplete answers"
   h.generate(async () => '<segment index="1">하나</segment>')
   await expect(translator.texts(["One", "Two"], "English", "Korean")).rejects.toThrow("segment index 2")
 })
+const handles = "colus001@me.com / +821092836686\n\n이거 둘다 테스트핸들로 등록해줘"
+const dropped = "Please register both of these as test handles."
+const kept = "colus001@me.com / +821092836686\n\nPlease register both of these as test handles."
+test("a translation that drops text needing no translation is retried once", async () => {
+  const h = host()
+  const replies = [dropped, kept]
+  h.generate(async () => replies.shift()!)
+  const translator = createTranslator(h.ctx, resolveOptions(h.ctx.options), new AbortController().signal)
+  expect(await translator.text(handles, "Korean", "English")).toBe(kept)
+  expect(h.requests).toHaveLength(2)
+  expect(h.requests[1].prompt).toBe(h.requests[0].prompt)
+})
+test("a repeated omission fails instead of returning an incomplete translation", async () => {
+  const h = host()
+  h.generate(async () => dropped)
+  const translator = createTranslator(h.ctx, resolveOptions(h.ctx.options), new AbortController().signal)
+  await expect(translator.text(handles, "Korean", "English")).rejects.toThrow(
+    "Translator omitted colus001@me.com, +821092836686",
+  )
+  expect(h.requests).toHaveLength(2)
+})
+test("batch translation retries a segment that dropped text", async () => {
+  const h = host()
+  const replies = [
+    '<segment index="1">하나</segment>\n<segment index="2">파일을 엽니다</segment>',
+    '<segment index="1">하나</segment>\n<segment index="2">src/index.ts 파일을 엽니다</segment>',
+  ]
+  h.generate(async () => replies.shift()!)
+  const translator = createTranslator(h.ctx, resolveOptions(h.ctx.options), new AbortController().signal)
+  expect(await translator.texts(["One", "Open src/index.ts"], "English", "Korean")).toEqual([
+    "하나",
+    "src/index.ts 파일을 엽니다",
+  ])
+  expect(h.requests).toHaveLength(2)
+})
 test("cleanup and request cancellation release hung translation calls", async () => {
   const h = host()
   h.generate(() => new Promise(() => {}))

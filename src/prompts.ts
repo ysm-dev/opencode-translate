@@ -4,6 +4,11 @@
 // the most capable component in the pipeline; layered regex extraction +
 // rigid rule lists historically over-protected ordinary words and
 // produced awkward output.
+//
+// Completeness is the exception. Asked only for "the translated text",
+// models sometimes dropped or moved parts with nothing to translate, such
+// as a line holding only an email address and phone number. Inbound, the
+// main model sees only the translation, so it never saw them.
 
 export interface TranslationPromptInput {
   sourceLanguage: string
@@ -21,6 +26,9 @@ export function buildSystemPrompt({ sourceLanguage, targetLanguage }: Translatio
   return [
     `You are a professional translator. Translate text from ${sourceLanguage} to ${targetLanguage}.`,
     "",
+    "Translate the entire input. Keep every part of it in your output, in the original order and layout.",
+    "Copy parts that need no translation (code, paths, URLs, email addresses, phone numbers, numbers) exactly as written.",
+    "Never omit, summarize, or merge content.",
     "Output only the translated text. Do not add commentary, explanations, or wrappers.",
     "Do not include the <text> or </text> delimiter tags in your output.",
     `If the input is already in ${targetLanguage}, return it unchanged.`,
@@ -38,6 +46,9 @@ export function buildBatchSystemPrompt({ sourceLanguage, targetLanguage }: Trans
     "",
     'Input contains multiple independent <segment index="N"> blocks.',
     "Translate only the text inside each segment.",
+    "Translate each segment entirely. Keep every part of it, in the original order and layout.",
+    "Copy parts that need no translation (code, paths, URLs, email addresses, phone numbers, numbers) exactly as written.",
+    "Never omit, summarize, or merge content within a segment.",
     'Output only <segment index="N"> blocks with translated text inside.',
     "Preserve every original segment index and order. Do not add, remove, merge, split, renumber, or reorder segments.",
     "Do not add commentary, explanations, markdown fences, or wrappers other than the required segment tags.",
